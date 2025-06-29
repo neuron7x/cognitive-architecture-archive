@@ -1,0 +1,1368 @@
+```csharp
+// CognitiveValidation/Models/CognitiveAchievement.cs
+namespace CognitiveValidation.Models;
+
+public enum CognitiveImpactLevel { Low, Medium, High }
+
+public record CognitiveAchievement(
+    Guid Id,
+    string Description,
+    DateTime CreatedAt,
+    CognitiveImpactLevel Impact,
+    double CausalCoherenceScore,
+    string SemanticContext);
+
+public record CognitiveAchievementDto(
+    Guid Id,
+    string Description,
+    DateTime CreatedAt,
+    string ImpactLevel,
+    double CausalCoherenceScore,
+    string SemanticContext);
+
+// CognitiveValidation/Models/CognitiveValidationOptions.cs
+namespace CognitiveValidation.Models;
+
+public sealed class CognitiveValidationOptions
+{
+    public const string SectionName = "CognitiveValidation";
+    public TimeSpan CacheDuration { get; init; } = TimeSpan.FromMinutes(30);
+    public int MaxAchievementsPerDay { get; init; } = 10;
+    public double MinCausalCoherenceThreshold { get; init; } = 0.5;
+    public string RedisConnectionString { get; init; } = "localhost:6379";
+    public string SqlConnectionString { get; init; } = "";
+    public string MongoConnectionString { get; init; } = "";
+    public string RepositoryType { get; init; } = "InMemory";
+    public int MaxDescriptionLength { get; init; } = 500;
+    public int MaxSemanticContextLength { get; init; } = 1000;
+    public int MaxSemanticFilterLength { get; init; } = 500;
+}
+
+// CognitiveValidation/Results/IResult.cs
+namespace CognitiveValidation.Results;
+
+public interface IResult
+{
+    bool IsSuccess { get; }
+    IReadOnlyList<Error> Errors { get; }
+}
+
+public record Error(string Code, string Message);
+
+public abstract record Result : IResult
+{
+    public bool IsSuccess { get; init; }
+    public IReadOnlyList<Error> Errors { get; init; } = Array.Empty<Error>();
+    protected Result(bool isSuccess, IReadOnlyList<Error> errors) => (IsSuccess, Errors) = (isSuccess, errors);
+
+    public static Result Success() => new NonGenericResult(true, Array.Empty<Error>());
+    public static Result Failure(Error error) => new NonGenericResult(false, new[] { error });
+    public static Result Failure(IEnumerable<Error> errors) => new NonGenericResult(false, errors.ToArray());
+
+    private sealed record NonGenericResult(bool IsSuccess, IReadOnlyList<Error> Errors) : Result(IsSuccess, Errors);
+}
+
+public sealed record Result<T> : Result
+{
+    public T? Value { get; init; }
+    private Result(bool isSuccess, T? value, IReadOnlyList<Error> errors) : base(isSuccess, errors) => Value = value;
+
+    public static Result<T> Success(T value) => new(true, value, Array.Empty<Error>());
+    public static new Result<T> Failure(Error error) => new(false, default, new[] { error });
+    public static new Result<T> Failure(IEnumerable<Error> errors) => new(false, default, errors.ToArray());
+}
+
+// CognitiveValidation/Specifications/CognitiveValidationSpecification.cs
+namespace CognitiveValidation.Specifications;
+
+public sealed class CognitiveValidationSpecification
+{
+    private readonly CognitiveValidationOptions _options;
+
+    public CognitiveValidationSpecification(IOptions<CognitiveValidationOptions> options) => _options = options.Value;
+
+    public Result ValidateAchievement(CognitiveAchievement achievement)
+    {
+        var errors = new List<Error>();
+        if (string.IsNullOrEmpty(achievement.Description))
+            errors.Add(new Error("DescriptionRequired", "Description cannot be empty"));
+        if (achievement.Description.Length > _options.MaxDescriptionLength)
+            errors.Add(new Error("DescriptionTooLong", $"Description exceeds {_options.MaxDescriptionLength} characters"));
+        if (string.IsNullOrEmpty(achievement.SemanticContext))
+            errors.Add(new Error("SemanticContextRequired", "Semantic context cannot be empty"));
+        if (achievement.SemanticContext.Length > _options.MaxSemanticContextLength)
+            errors.Add(new Error("SemanticContextTooLong", $"Semantic context exceeds {_options.MaxSemanticContextLength} characters"));
+        if (achievement.CausalCoherenceScore < _options.MinCausalCoherenceThreshold || achievement.CausalCoherenceScore > 1.0)
+            errors.Add(new Error("InvalidCausalCoherence", $"Coherence score must be between {_options.MinCausalCoherenceThreshold} and 1.0"));
+        if (achievement.Impact == CognitiveImpactLevel.Low)
+            errors.Add(new Error("InvalidImpactLevel", "Impact level cannot be Low"));
+
+        return errors.Count > 0 ? Result.Failure(errors) : Result.Success();
+    }
+
+    public Result ValidateDailyLimit(int count) =>
+        count >= _options.MaxAchievementsPerDay
+            ? Result.Failure(new Error("DailyLimitExceeded", "Daily achievement limit exceeded"))
+            : Result.Success();
+}
+
+// CognitiveValidation/Repositories/IRepositoryFactory.cs
+namespace CognitiveValidation.Repositories;
+
+public interface IRepositoryFactory
+{
+    ICognitiveAchievementRepository CreateRepository();
+}
+
+// CognitiveValidation/Repositories/ICognitiveAchievementRepository.cs
+namespace CognitiveValidation.Repositories;
+
+public interface ICognitiveAchievementRepository : IHealthCheck
+{
+    Task<Result<Unit>> AddAsync(CognitiveAchievement achievement, CancellationToken ct);
+    Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct);
+    Task<Result<PagedResult<CognitiveAchievement>>> ListAsync(int pageNumber, int pageSize, string? semanticFilter, string sortBy, bool ascending, CancellationToken ct);
+    Task<int> CountByDateAsync(DateTime date, CancellationToken ct);
+}
+
+// CognitiveValidation/Repositories/InMemoryCognitiveAchievementRepository.cs
+namespace CognitiveValidation.Repositories;
+
+public sealed class InMemoryCognitiveAchievementRepository : ICognitiveAchievementRepository
+{
+    private readonly ConcurrentDictionary<Guid, CognitiveAchievement> _achievements = new();
+    private readonly IClock _clock;
+
+    public InMemoryCognitiveAchievementRepository(IClock clock) => _clock = clock;
+
+    public Task<Result<Unit>> AddAsync(CognitiveAchievement achievement, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!_achievements.TryAdd(achievement.Id, achievement))
+            return Task.FromResult(Result<Unit>.Failure(new Error("DuplicateId", "Achievement ID already exists")));
+        return Task.FromResult(Result<Unit>.Success(Unit.Value));
+    }
+
+    public Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(_achievements.TryGetValue(id, out var achievement)
+            ? Result<CognitiveAchievement>.Success(achievement)
+            : Result<CognitiveAchievement>.Failure(new Error("NotFound", "Achievement not found")));
+    }
+
+    public Task<Result<PagedResult<CognitiveAchievement>>> ListAsync(int pageNumber, int pageSize, string? semanticFilter, string sortBy, bool ascending, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var query = _achievements.Values.AsQueryable();
+        if (!string.IsNullOrEmpty(semanticFilter))
+            query = query.Where(a => a.SemanticContext.Contains(semanticFilter, StringComparison.OrdinalIgnoreCase));
+
+        query = SortQuery(query, sortBy, ascending);
+        var totalCount = query.Count();
+        var items = query.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
+        var result = new PagedResult<CognitiveAchievement>(items, totalCount, pageNumber, pageSize);
+        return Task.FromResult(Result<PagedResult<CognitiveAchievement>>.Success(result));
+    }
+
+    public Task<int> CountByDateAsync(DateTime date, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return Task.FromResult(_achievements.Values.Count(a => a.CreatedAt.Date == date.Date));
+    }
+
+    public Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct) =>
+        Task.FromResult(HealthCheckResult.Healthy());
+
+    private static IQueryable<CognitiveAchievement> SortQuery(IQueryable<CognitiveAchievement> query, string sortBy, bool ascending) =>
+        sortBy.ToLowerInvariant() switch
+        {
+            "description" => ascending ? query.OrderBy(a => a.Description) : query.OrderByDescending(a => a.Description),
+            "impact" => ascending ? query.OrderBy(a => a.Impact) : query.OrderByDescending(a => a.Impact),
+            "coherence" => ascending ? query.OrderBy(a => a.CausalCoherenceScore) : query.OrderByDescending(a => a.CausalCoherenceScore),
+            _ => ascending ? query.OrderBy(a => a.CreatedAt) : query.OrderByDescending(a => a.CreatedAt)
+        };
+}
+
+// CognitiveValidation/Repositories/SqlCognitiveAchievementRepository.cs
+namespace CognitiveValidation.Repositories;
+
+public sealed class SqlCognitiveAchievementRepository : ICognitiveAchievementRepository
+{
+    private readonly CognitiveDbContext _context;
+    private readonly IClock _clock;
+
+    public SqlCognitiveAchievementRepository(CognitiveDbContext context, IClock clock)
+    {
+        _context = context;
+        _clock = clock;
+    }
+
+    public async Task<Result<Unit>> AddAsync(CognitiveAchievement achievement, CancellationToken ct)
+    {
+        try
+        {
+            await _context.Achievements.AddAsync(achievement, ct);
+            await _context.SaveChangesAsync(ct);
+            return Result<Unit>.Success(Unit.Value);
+        }
+        catch (DbUpdateException ex)
+        {
+            return Result<Unit>.Failure(new Error("DuplicateId", $"Failed to add achievement: {ex.Message}"));
+        }
+    }
+
+    public async Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct)
+    {
+        var achievement = await _context.Achievements.FindAsync(new object[] { id }, ct);
+        return achievement is null
+            ? Result<CognitiveAchievement>.Failure(new Error("NotFound", "Achievement not found"))
+            : Result<CognitiveAchievement>.Success(achievement);
+    }
+
+    public async Task<Result<PagedResult<CognitiveAchievement>>> ListAsync(int pageNumber, int pageSize, string? semanticFilter, string sortBy, bool ascending, CancellationToken ct)
+    {
+        var query = _context.Achievements.AsQueryable();
+        if (!string.IsNullOrEmpty(semanticFilter))
+            query = query.Where(a => EF.Functions.Like(a.SemanticContext, $"%{semanticFilter}%"));
+
+        query = SortQuery(query, sortBy, ascending);
+        var totalCount = await query.CountAsync(ct);
+        var items = await query.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        var result = new PagedResult<CognitiveAchievement>(items, totalCount, pageNumber, pageSize);
+        return Result<PagedResult<CognitiveAchievement>>.Success(result);
+    }
+
+    public Task<int> CountByDateAsync(DateTime date, CancellationToken ct) =>
+        _context.Achievements.CountAsync(a => a.CreatedAt.Date == date.Date, ct);
+
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct)
+    {
+        try
+        {
+            await _context.Database.CanConnectAsync(ct);
+            return HealthCheckResult.Healthy();
+        }
+        catch (Exception ex)
+        {
+            return HealthCheckResult.Unhealthy("Database connection failed", ex);
+        }
+    }
+
+    private static IQueryable<CognitiveAchievement> SortQuery(IQueryable<CognitiveAchievement> query, string sortBy, bool ascending) =>
+        sortBy.ToLowerInvariant() switch
+        {
+            "description" => ascending ? query.OrderBy(a => a.Description) : query.OrderByDescending(a => a.Description),
+            "impact" => ascending ? query.OrderBy(a => a.Impact) : query.OrderByDescending(a => a.Impact),
+            "coherence" => ascending ? query.OrderBy(a => a.CausalCoherenceScore) : query.OrderByDescending(a => a.CausalCoherenceScore),
+            _ => ascending ? query.OrderBy(a => a.CreatedAt) : query.OrderByDescending(a => a.CreatedAt)
+        };
+}
+
+// CognitiveValidation/Repositories/MongoCognitiveAchievementRepository.cs
+namespace CognitiveValidation.Repositories;
+
+public sealed class MongoCognitiveAchievementRepository : ICognitiveAchievementRepository
+{
+    private readonly IMongoCollection<CognitiveAchievement> _achievements;
+    private readonly IClock _clock;
+
+    public MongoCognitiveAchievementRepository(IMongoDatabase database, IClock clock)
+    {
+        _achievements = database.GetCollection<CognitiveAchievement>("Achievements");
+        _clock = clock;
+        CreateIndexes();
+    }
+
+    private void CreateIndexes()
+    {
+        _achievements.Indexes.CreateOne(new CreateIndexModel<CognitiveAchievement>(
+            Builders<CognitiveAchievement>.IndexKeys.Ascending(a => a.CreatedAt)));
+        _achievements.Indexes.CreateOne(new CreateIndexModel<CognitiveAchievement>(
+            Builders<CognitiveAchievement>.IndexKeys.Text(a => a.SemanticContext)));
+    }
+
+    public async Task<Result<Unit>> AddAsync(CognitiveAchievement achievement, CancellationToken ct)
+    {
+        try
+        {
+            await _achievements.InsertOneAsync(achievement, null, ct);
+            return Result<Unit>.Success(Unit.Value);
+        }
+        catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            return Result<Unit>.Failure(new Error("DuplicateId", "Achievement ID already exists"));
+        }
+    }
+
+    public async Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct)
+    {
+        var achievement = await _achievements.Find(a => a.Id == id).FirstOrDefaultAsync(ct);
+        return achievement is null
+            ? Result<CognitiveAchievement>.Failure(new Error("NotFound", "Achievement not found"))
+            : Result<CognitiveAchievement>.Success(achievement);
+    }
+
+    public async Task<Result<PagedResult<CognitiveAchievement>>> ListAsync(int pageNumber, int pageSize, string? semanticFilter, string sortBy, bool ascending, CancellationToken ct)
+    {
+        var filter = Builders<CognitiveAchievement>.Filter.Empty;
+        if (!string.IsNullOrEmpty(semanticFilter))
+            filter = Builders<CognitiveAchievement>.Filter.Text(semanticFilter);
+
+        var query = _achievements.Find(filter);
+        query = SortQuery(query, sortBy, ascending);
+
+        var totalCount = await query.CountDocumentsAsync(ct);
+        var items = await query
+            .Skip((pageNumber - 1) * pageSize)
+            .Limit(pageSize)
+            .ToListAsync(ct);
+
+        var result = new PagedResult<CognitiveAchievement>(items, (int)totalCount, pageNumber, pageSize);
+        return Result<PagedResult<CognitiveAchievement>>.Success(result);
+    }
+
+    public async Task<int> CountByDateAsync(DateTime date, CancellationToken ct)
+    {
+        var filter = Builders<CognitiveAchievement>.Filter.Eq(a => a.CreatedAt.Date, date.Date);
+        return (int)await _achievements.CountDocumentsAsync(filter, null, ct);
+    }
+
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct)
+    {
+        try
+        {
+            await _achievements.Database.RunCommandAsync((Command<BsonDocument>)"{ ping: 1 }", cancellationToken: ct);
+            return HealthCheckResult.Healthy();
+        }
+        catch (Exception ex)
+        {
+            return HealthCheckResult.Unhealthy("MongoDB connection failed", ex);
+        }
+    }
+
+    private static IFindFluent<CognitiveAchievement, CognitiveAchievement> SortQuery(
+        IFindFluent<CognitiveAchievement, CognitiveAchievement> query, string sortBy, bool ascending)
+    {
+        var sort = ascending ? 1 : -1;
+        return sortBy.ToLowerInvariant() switch
+        {
+            "description" => query.Sort(Builders<CognitiveAchievement>.Sort.Ascending(a => a.Description)),
+            "impact" => query.Sort(Builders<CognitiveAchievement>.Sort.Ascending(a => a.Impact)),
+            "coherence" => query.Sort(Builders<CognitiveAchievement>.Sort.Ascending(a => a.CausalCoherenceScore)),
+            _ => query.Sort(Builders<CognitiveAchievement>.Sort.Ascending(a => a.CreatedAt))
+        };
+    }
+}
+
+// CognitiveValidation/Repositories/RepositoryFactory.cs
+namespace CognitiveValidation.Repositories;
+
+public sealed class RepositoryFactory : IRepositoryFactory
+{
+    private readonly IServiceProvider _provider;
+    private readonly CognitiveValidationOptions _options;
+
+    public RepositoryFactory(IServiceProvider provider, IOptions<CognitiveValidationOptions> options)
+    {
+        _provider = provider;
+        _options = options.Value;
+    }
+
+    public ICognitiveAchievementRepository CreateRepository() =>
+        _options.RepositoryType.ToLowerInvariant() switch
+        {
+            "sql" => _provider.GetRequiredService<SqlCognitiveAchievementRepository>(),
+            "mongo" => _provider.GetRequiredService<MongoCognitiveAchievementRepository>(),
+            _ => _provider.GetRequiredService<InMemoryCognitiveAchievementRepository>()
+        };
+}
+
+// CognitiveValidation/Cache/ICognitiveAchievementCache.cs
+namespace CognitiveValidation.Cache;
+
+public interface ICognitiveAchievementCache
+{
+    Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct);
+    Task SetByIdAsync(CognitiveAchievement achievement, CancellationToken ct);
+    Task<Result<PagedResult<CognitiveAchievement>>> GetListAsync(string cacheKey, CancellationToken ct);
+    Task SetListAsync(string cacheKey, PagedResult<CognitiveAchievement> result, CancellationToken ct);
+    Task<HealthCheckResult> CheckHealthAsync(CancellationToken ct);
+}
+
+// CognitiveValidation/Cache/RedisAchievementCache.cs
+namespace CognitiveValidation.Cache;
+
+public sealed class RedisAchievementCache : ICognitiveAchievementCache
+{
+    private readonly IDistributedCache _cache;
+    private readonly CognitiveValidationOptions _options;
+    private readonly ILogger<RedisAchievementCache> _logger;
+    private readonly IAsyncPolicy _cachePolicy;
+
+    public RedisAchievementCache(
+        IDistributedCache cache,
+        IOptions<CognitiveValidationOptions> options,
+        ILogger<RedisAchievementCache> logger)
+    {
+        _cache = cache;
+        _options = options.Value;
+        _logger = logger;
+        _cachePolicy = Policy
+            .Handle<RedisException>()
+            .WaitAndRetryAsync(2, attempt => TimeSpan.FromMilliseconds(50 * Math.Pow(2, attempt)),
+                (ex, _) => logger.LogWarning(ex, "Cache operation retry"));
+    }
+
+    public async Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct)
+    {
+        var cacheKey = $"ca:{id}";
+        return await _cachePolicy.ExecuteAsync(async ct =>
+        {
+            var cached = await _cache.GetStringAsync(cacheKey, ct);
+            if (cached is null)
+            {
+                Telemetry.Metrics.CacheMisses.Add(1, new("operation", "get"));
+                return Result<CognitiveAchievement>.Failure(new Error("CacheMiss", "Not found in cache"));
+            }
+
+            _logger.LogInformation("Cache hit for {CacheKey}", cacheKey);
+            Telemetry.Metrics.CacheHits.Add(1, new("operation", "get"));
+            return Result<CognitiveAchievement>.Success(JsonSerializer.Deserialize<CognitiveAchievement>(cached)!);
+        }, ct);
+    }
+
+    public async Task SetByIdAsync(CognitiveAchievement achievement, CancellationToken ct)
+    {
+        var cacheKey = $"ca:{achievement.Id}";
+        await _cachePolicy.ExecuteAsync(async ct =>
+        {
+            await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(achievement),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = _options.CacheDuration }, ct);
+        }, ct);
+    }
+
+    public async Task<Result<PagedResult<CognitiveAchievement>>> GetListAsync(string cacheKey, CancellationToken ct)
+    {
+        return await _cachePolicy.ExecuteAsync(async ct =>
+        {
+            var cached = await _cache.GetStringAsync(cacheKey, ct);
+            if (cached is null)
+            {
+                Telemetry.Metrics.CacheMisses.Add(1, new("operation", "list"));
+                return Result<PagedResult<CognitiveAchievement>>.Failure(new Error("CacheMiss", "Not found in cache"));
+            }
+
+            _logger.LogInformation("Cache hit for {CacheKey}", cacheKey);
+            Telemetry.Metrics.CacheHits.Add(1, new("operation", "list"));
+            return Result<PagedResult<CognitiveAchievement>>.Success(JsonSerializer.Deserialize<PagedResult<CognitiveAchievement>>(cached)!);
+        }, ct);
+    }
+
+    public async Task SetListAsync(string cacheKey, PagedResult<CognitiveAchievement> result, CancellationToken ct)
+    {
+        await _cachePolicy.ExecuteAsync(async ct =>
+        {
+            await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(result),
+                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = _options.CacheDuration }, ct);
+        }, ct);
+    }
+
+    public async Task<HealthCheckResult> CheckHealthAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _cache.GetStringAsync("health:ping", ct);
+            return HealthCheckResult.Healthy();
+        }
+        catch (RedisException ex)
+        {
+            return HealthCheckResult.Unhealthy("Redis unavailable", ex);
+        }
+    }
+}
+
+// CognitiveValidation/Cache/ICacheInvalidationService.cs
+namespace CognitiveValidation.Cache;
+
+public interface ICacheInvalidationService
+{
+    Task InvalidateAchievementAsync(Guid? id, CancellationToken ct);
+    Task InvalidateListAsync(CancellationToken ct);
+}
+
+// CognitiveValidation/Cache/RedisCacheInvalidationService.cs
+namespace CognitiveValidation.Cache;
+
+public sealed class RedisCacheInvalidationService : ICacheInvalidationService
+{
+    private readonly IConnectionMultiplexer _redis;
+    private readonly ILogger<RedisCacheInvalidationService> _logger;
+    private readonly RedisKey _cacheKeysSet = "ca:keys";
+
+    public RedisCacheInvalidationService(IConnectionMultiplexer redis, ILogger<RedisCacheInvalidationService> logger)
+    {
+        _redis = redis;
+        _logger = logger;
+    }
+
+    public async Task InvalidateAchievementAsync(Guid? id, CancellationToken ct)
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            if (id.HasValue)
+            {
+                var key = $"ca:{id.Value}";
+                await db.KeyDeleteAsync(key);
+                await db.SetRemoveAsync(_cacheKeysSet, key);
+                _logger.LogInformation("Invalidated cache key: {Key}", key);
+            }
+            else
+            {
+                var keys = await db.SetMembersAsync(_cacheKeysSet);
+                if (keys.Length > 0)
+                {
+                    await db.KeyDeleteAsync(keys.Select(k => (RedisKey)k).ToArray());
+                    await db.KeyDeleteAsync(_cacheKeysSet);
+                    _logger.LogInformation("Invalidated {Count} achievement cache keys", keys.Length);
+                }
+            }
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Cache invalidation failed");
+        }
+    }
+
+    public async Task InvalidateListAsync(CancellationToken ct)
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            var keys = await db.SetMembersAsync(_cacheKeysSet);
+            var listKeys = keys.Where(k => k.ToString().StartsWith("ca:list:")).Select(k => (RedisKey)k).ToArray();
+            if (listKeys.Length > 0)
+            {
+                await db.KeyDeleteAsync(listKeys);
+                await db.SetRemoveAsync(_cacheKeysSet, listKeys.Select(k => (RedisValue)k));
+                _logger.LogInformation("Invalidated {Count} list cache keys", listKeys.Length);
+            }
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "List cache invalidation failed");
+        }
+    }
+}
+
+// CognitiveValidation/Services/ICognitiveAchievementService.cs
+namespace CognitiveValidation.Services;
+
+public interface ICognitiveAchievementService
+{
+    Task<Result<CognitiveAchievement>> RegisterAsync(RegisterCognitiveAchievementCommand command, CancellationToken ct);
+    Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct);
+    Task<Result<PagedResult<CognitiveAchievement>>> ListAsync(ListCognitiveAchievementsQuery query, CancellationToken ct);
+}
+
+// CognitiveValidation/Services/CognitiveAchievementService.cs
+namespace CognitiveValidation.Services;
+
+public sealed class CognitiveAchievementService : ICognitiveAchievementService
+{
+    private readonly ICognitiveAchievementRepository _repository;
+    private readonly ICognitiveAchievementCache _cache;
+    private readonly ICacheInvalidationService _invalidationService;
+    private readonly CognitiveValidationSpecification _specification;
+    private readonly IClock _clock;
+    private readonly ILogger<CognitiveAchievementService> _logger;
+
+    public CognitiveAchievementService(
+        ICognitiveAchievementRepository repository,
+        ICognitiveAchievementCache cache,
+        ICacheInvalidationService invalidationService,
+        CognitiveValidationSpecification specification,
+        IClock clock,
+        ILogger<CognitiveAchievementService> logger)
+    {
+        _repository = repository;
+        _cache = cache;
+        _invalidationService = invalidationService;
+        _specification = specification;
+        _clock = clock;
+        _logger = logger;
+    }
+
+    public async Task<Result<CognitiveAchievement>> RegisterAsync(RegisterCognitiveAchievementCommand command, CancellationToken ct)
+    {
+        var achievement = new CognitiveAchievement(
+            Guid.NewGuid(),
+            command.Description,
+            _clock.UtcNow,
+            command.Impact,
+            command.CausalCoherenceScore,
+            command.SemanticContext);
+
+        var validationResult = _specification.ValidateAchievement(achievement);
+        if (!validationResult.IsSuccess)
+        {
+            _logger.LogWarning("Validation failed: {Errors}", string.Join("; ", validationResult.Errors.Select(e => e.Message)));
+            return Result<CognitiveAchievement>.Failure(validationResult.Errors);
+        }
+
+        var count = await _repository.CountByDateAsync(_clock.UtcNow.Date, ct);
+        var limitResult = _specification.ValidateDailyLimit(count);
+        if (!limitResult.IsSuccess)
+        {
+            _logger.LogWarning("Daily limit exceeded");
+            return Result<CognitiveAchievement>.Failure(limitResult.Errors);
+        }
+
+        var result = await _repository.AddAsync(achievement, ct);
+        if (!result.IsSuccess)
+        {
+            _logger.LogError("Failed to register achievement: {Errors}", string.Join("; ", result.Errors.Select(e => e.Message)));
+            Telemetry.Metrics.AnomalySpike.Add(1, new("type", "add_failure"));
+            return Result<CognitiveAchievement>.Failure(new Error("AddFailed", "Failed to register achievement"));
+        }
+
+        await _cache.SetByIdAsync(achievement, ct);
+        await _invalidationService.InvalidateListAsync(ct);
+        _logger.LogInformation("Registered achievement: {AchievementId}", achievement.Id);
+        Telemetry.Metrics.AchievementsCreated.Add(1, new("impact", command.Impact.ToString()));
+        return Result<CognitiveAchievement>.Success(achievement);
+    }
+
+    public async Task<Result<CognitiveAchievement>> GetByIdAsync(Guid id, CancellationToken ct)
+    {
+        var cacheResult = await _cache.GetByIdAsync(id, ct);
+        if (cacheResult.IsSuccess)
+            return cacheResult;
+
+        var result = await _repository.GetByIdAsync(id, ct);
+        if (!result.IsSuccess)
+        {
+            _logger.LogWarning("Achievement not found: {AchievementId}", id);
+            Telemetry.Metrics.AnomalySpike.Add(1, new("type", "get_failure"));
+            return result;
+        }
+
+        await _cache.SetByIdAsync(result.Value!, ct);
+        return result;
+    }
+
+    public async Task<Result<PagedResult<CognitiveAchievement>>> ListAsync(ListCognitiveAchievementsQuery query, CancellationToken ct)
+    {
+        var cacheKey = GenerateListCacheKey(query);
+        var cacheResult = await _cache.GetListAsync(cacheKey, ct);
+        if (cacheResult.IsSuccess)
+            return cacheResult;
+
+        var result = await _repository.ListAsync(query.PageNumber, query.PageSize, query.SemanticFilter, query.SortBy, query.Ascending, ct);
+        if (!result.IsSuccess)
+        {
+            _logger.LogWarning("Failed to list achievements: {Errors}", string.Join("; ", result.Errors.Select(e => e.Message)));
+            Telemetry.Metrics.AnomalySpike.Add(1, new("type", "list_failure"));
+            return result;
+        }
+
+        await _cache.SetListAsync(cacheKey, result.Value!, ct);
+        return result;
+    }
+
+    private static string GenerateListCacheKey(ListCognitiveAchievementsQuery query)
+    {
+        var input = $"{query.PageNumber}:{query.PageSize}:{query.SemanticFilter ?? "none"}:{query.SortBy}:{query.Ascending}";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return $"ca:list:{Base64UrlEncoder.Encode(hash)}";
+    }
+}
+
+// CognitiveValidation/Handlers/Commands/RegisterCognitiveAchievementHandler.cs
+namespace CognitiveValidation.Handlers.Commands;
+
+public record RegisterCognitiveAchievementCommand(
+    string Description,
+    CognitiveImpactLevel Impact,
+    double CausalCoherenceScore,
+    string SemanticContext) : ICommand<Result<CognitiveAchievement>>;
+
+public sealed class RegisterCognitiveAchievementHandler : ICommandHandler<RegisterCognitiveAchievementCommand, Result<CognitiveAchievement>>
+{
+    private readonly ICognitiveAchievementService _service;
+
+    public RegisterCognitiveAchievementHandler(ICognitiveAchievementService service) => _service = service;
+
+    public Task<Result<CognitiveAchievement>> Handle(RegisterCognitiveAchievementCommand command, CancellationToken ct) =>
+        _service.RegisterAsync(command, ct);
+}
+
+// CognitiveValidation/Handlers/Queries/GetCognitiveAchievementHandler.cs
+namespace CognitiveValidation.Handlers.Queries;
+
+public record GetCognitiveAchievementQuery(Guid Id) : IQuery<Result<CognitiveAchievement>>;
+
+public sealed class GetCognitiveAchievementHandler : IQueryHandler<GetCognitiveAchievementQuery, Result<CognitiveAchievement>>
+{
+    private readonly ICognitiveAchievementService _service;
+    private readonly IValidator<GetCognitiveAchievementQuery> _validator;
+
+    public GetCognitiveAchievementHandler(
+        ICognitiveAchievementService service,
+        IValidator<GetCognitiveAchievementQuery> validator)
+    {
+        _service = service;
+        _validator = validator;
+    }
+
+    public async Task<Result<CognitiveAchievement>> Handle(GetCognitiveAchievementQuery query, CancellationToken ct)
+    {
+        var validationResult = await _validator.ValidateAsync(query, ct);
+        if (!validationResult.IsValid)
+        {
+            var errors = validationResult.Errors.Select(e => new Error(e.ErrorCode, e.ErrorMessage)).ToList();
+            return Result<CognitiveAchievement>.Failure(errors);
+        }
+
+        return await _service.GetByIdAsync(query.Id, ct);
+    }
+}
+
+// CognitiveValidation/Handlers/Queries/ListCognitiveAchievementsHandler.cs
+namespace CognitiveValidation.Handlers.Queries;
+
+public record ListCognitiveAchievementsQuery(
+    int PageNumber = 1,
+    int PageSize = 10,
+    string? SemanticFilter = null,
+    string SortBy = nameof(CognitiveAchievement.CreatedAt),
+    bool Ascending = false) : IQuery<Result<PagedResult<CognitiveAchievement>>>;
+
+public sealed class ListCognitiveAchievementsHandler : IQueryHandler<ListCognitiveAchievementsQuery, Result<PagedResult<CognitiveAchievement>>>
+{
+    private readonly ICognitiveAchievementService _service;
+    private readonly IValidator<ListCognitiveAchievementsQuery> _validator;
+
+    public ListCognitiveAchievementsHandler(
+        ICognitiveAchievementService service,
+        IValidator<ListCognitiveAchievementsQuery> validator)
+    {
+        _service = service;
+        _validator = validator;
+    }
+
+    public async Task<Result<PagedResult<CognitiveAchievement>>> Handle(ListCognitiveAchievementsQuery query, CancellationToken ct)
+    {
+        var validationResult = await _validator.ValidateAsync(query, ct);
+        if (!validationResult.IsValid)
+        {
+            var errors = validationResult.Errors.Select(e => new Error(e.ErrorCode, e.ErrorMessage)).ToList();
+            return Result<PagedResult<CognitiveAchievement>>.Failure(errors);
+        }
+
+        return await _service.ListAsync(query, ct);
+    }
+}
+
+// CognitiveValidation/Validators/CognitiveAchievementValidators.cs
+namespace CognitiveValidation.Validators;
+
+public sealed class GetAchievementValidator : AbstractValidator<GetCognitiveAchievementQuery>
+{
+    public GetAchievementValidator() =>
+        RuleFor(x => x.Id).NotEmpty().WithErrorCode("IdRequired");
+}
+
+public sealed class ListAchievementsValidator : AbstractValidator<ListCognitiveAchievementsQuery>
+{
+    public ListAchievementsValidator(IOptions<CognitiveValidationOptions> options)
+    {
+        var opts = options.Value;
+        RuleFor(x => x.PageNumber).GreaterThan(0).WithErrorCode("InvalidPageNumber");
+        RuleFor(x => x.PageSize).InclusiveBetween(1, 100).WithErrorCode("InvalidPageSize");
+        RuleFor(x => x.SemanticFilter)
+            .MaximumLength(opts.MaxSemanticFilterLength)
+            .When(x => !string.IsNullOrEmpty(x.SemanticFilter))
+            .WithErrorCode("SemanticFilterTooLong");
+        RuleFor(x => x.SortBy)
+            .Must(x => new[] { "createdat", "description", "impact", "coherence" }.Contains(x.ToLowerInvariant()))
+            .WithErrorCode("InvalidSortBy");
+    }
+}
+
+// CognitiveValidation/Infrastructure/CognitiveDbContext.cs
+namespace CognitiveValidation.Infrastructure;
+
+public class CognitiveDbContext : DbContext
+{
+    public DbSet<CognitiveAchievement> Achievements { get; set; } = null!;
+
+    public CognitiveDbContext(DbContextOptions<CognitiveDbContext> options) : base(options) { }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CognitiveAchievement>()
+            .HasKey(a => a.Id);
+        modelBuilder.Entity<CognitiveAchievement>()
+            .HasIndex(a => a.CreatedAt);
+        modelBuilder.Entity<CognitiveAchievement>()
+            .HasIndex(a => a.SemanticContext);
+    }
+}
+
+// CognitiveValidation/Infrastructure/ValidationBehavior.cs
+namespace CognitiveValidation.Infrastructure;
+
+public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IBaseRequest
+    where TResponse : IResult
+{
+    private readonly IEnumerable<IValidator<TRequest>> _validators;
+    private readonly ILogger<ValidationBehavior<TRequest, TResponse>> _logger;
+
+    public ValidationBehavior(IEnumerable<IValidator<TRequest>> validators, ILogger<ValidationBehavior<TRequest, TResponse>> logger)
+    {
+        _validators = validators;
+        _logger = logger;
+    }
+
+    public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken ct)
+    {
+        if (!_validators.Any())
+            return await next();
+
+        var context = new ValidationContext<TRequest>(request);
+        var results = await Task.WhenAll(_validators.Select(v => v.ValidateAsync(context, ct)));
+        var failures = results.SelectMany(r => r.Errors).Where(f => f != null).ToList();
+
+        if (failures.Count != 0)
+        {
+            var errors = failures.Select(f => new Error(f.ErrorCode, f.ErrorMessage)).ToList();
+            _logger.LogWarning("Validation failed for {RequestType}: {Errors}", typeof(TRequest).Name, string.Join("; ", errors.Select(e => e.Message)));
+            Telemetry.Metrics.ValidationErrors.Add(errors.Count, new("requestType", typeof(TRequest).Name));
+            return (TResponse)(IResult)Result.Failure(errors);
+        }
+
+        return await next();
+    }
+}
+
+// CognitiveValidation/Infrastructure/LoggingBehavior.cs
+namespace CognitiveValidation.Infrastructure;
+
+public sealed class LoggingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IBaseRequest
+{
+    private readonly ILogger<LoggingBehavior<TRequest, TResponse>> _logger;
+
+    public LoggingBehavior(ILogger<LoggingBehavior<TRequest, TResponse>> logger) => _logger = logger;
+
+    public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next, CancellationToken ct)
+    {
+        using var scope = _logger.BeginScope(new Dictionary<string, object>
+        {
+            ["CorrelationId"] = Guid.NewGuid().ToString(),
+            ["RequestType"] = typeof(TRequest).Name
+        });
+
+        var start = DateTime.UtcNow;
+        _logger.LogInformation("Handling {RequestType}", typeof(TRequest).Name);
+        var response = await next();
+        var duration = (DateTime.UtcNow - start).TotalMilliseconds;
+
+        if (response is IResult result && !result.IsSuccess)
+        {
+            _logger.LogWarning("Request failed: {Errors}", string.Join("; ", result.Errors.Select(e => e.Message)));
+            Telemetry.Metrics.AnomalySpike.Add(1, new("type", "request_failure"));
+        }
+        else
+            _logger.LogInformation("Request completed in {Duration}ms", duration);
+
+        Telemetry.Metrics.RequestDuration.Record(duration, new("requestType", typeof(TRequest).Name));
+        return response;
+    }
+}
+
+// CognitiveValidation/Infrastructure/GlobalExceptionMiddleware.cs
+namespace CognitiveValidation.Infrastructure;
+
+public sealed class GlobalExceptionMiddleware
+{
+    private readonly RequestDelegate _next;
+    private readonly ILogger<GlobalExceptionMiddleware> _logger;
+
+    public GlobalExceptionMiddleware(RequestDelegate next, ILogger<GlobalExceptionMiddleware> logger)
+    {
+        _next = next;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        try
+        {
+            await _next(context);
+        }
+        catch (CognitiveValidationException ex)
+        {
+            _logger.LogWarning(ex, "Validation violation: {RuleCode}", ex.RuleCode);
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await WriteErrorResponse(context, new[] { new Error(ex.RuleCode, ex.Message) });
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogError(ex, "Cache service unavailable");
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await WriteErrorResponse(context, new[] { new Error("CacheUnavailable", "Cache service unavailable") });
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Request canceled");
+            context.Response.StatusCode = StatusCodes.Status499ClientClosedRequest;
+            await WriteErrorResponse(context, new[] { new Error("RequestCanceled", "Request was canceled") });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error");
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            await WriteErrorResponse(context, new[] { new Error("InternalError", "Internal server error") });
+        }
+    }
+
+    private static Task WriteErrorResponse(HttpContext context, IReadOnlyList<Error> errors) =>
+        context.Response.WriteAsJsonAsync(new ApiResponse { Success = false, Errors = errors.Select(e => e.Message).ToArray() });
+}
+
+// CognitiveValidation/Infrastructure/Telemetry.cs
+namespace CognitiveValidation.Infrastructure;
+
+public static class Telemetry
+{
+    public static readonly string ServiceName = "CognitiveValidationService";
+    public static readonly ActivitySource ActivitySource = new(ServiceName);
+    public static class Metrics
+    {
+        public static readonly Counter<long> AchievementsCreated = Meter.CreateCounter<long>(
+            "cognitive_achievements_created",
+            description: "Number of cognitive achievements registered");
+        public static readonly Histogram<double> RequestDuration = Meter.CreateHistogram<double>(
+            "cognitive_request_duration_ms",
+            unit: "ms",
+            description: "Duration of cognitive achievement requests");
+        public static readonly Counter<long> CacheHits = Meter.CreateCounter<long>(
+            "cognitive_cache_hits",
+            description: "Number of cache hits");
+        public static readonly Counter<long> CacheMisses = Meter.CreateCounter<long>(
+            "cognitive_cache_misses",
+            description: "Number of cache misses");
+        public static readonly Counter<long> AnomalySpike = Meter.CreateCounter<long>(
+            "cognitive_anomaly_spike",
+            description: "Spikes in operational anomalies (e.g., failures)");
+        public static readonly Counter<long> ValidationErrors = Meter.CreateCounter<long>(
+            "cognitive_validation_errors",
+            description: "Number of validation errors");
+    }
+
+    private static readonly Meter Meter = new(ServiceName);
+}
+
+// CognitiveValidation/Infrastructure/IClock.cs
+namespace CognitiveValidation.Infrastructure;
+
+public interface IClock
+{
+    DateTime UtcNow { get; }
+}
+
+public sealed class SystemClock : IClock
+{
+    public DateTime UtcNow => DateTime.UtcNow;
+}
+
+// CognitiveValidation/Infrastructure/Base64UrlEncoder.cs
+namespace CognitiveValidation.Infrastructure;
+
+public static class Base64UrlEncoder
+{
+    public static string Encode(byte[] input)
+    {
+        var base64 = Convert.ToBase64String(input);
+        return base64.Replace("+", "-").Replace("/", "_").TrimEnd('=');
+    }
+}
+
+// CognitiveValidation/Infrastructure/CircuitBreakerPolicies.cs
+namespace CognitiveValidation.Infrastructure;
+
+public sealed class CircuitBreakerPolicies
+{
+    public IAsyncPolicy Read { get; }
+    public IAsyncPolicy Write { get; }
+
+    public CircuitBreakerPolicies(ILogger<CircuitBreakerPolicies> logger)
+    {
+        Read = Policy
+            .Handle<Exception>()
+            .CircuitBreakerAsync(
+                exceptionsAllowedBeforeBreaking: 10,
+                durationOfBreak: TimeSpan.FromSeconds(20),
+                onBreak: (ex, breakDelay) => logger.LogWarning(ex, "Read circuit breaker opened for {BreakDelay}", breakDelay),
+                onReset: () => logger.LogInformation("Read circuit breaker reset"));
+
+        Write = Policy
+            .Handle<Exception>()
+            .CircuitBreakerAsync(
+                exceptionsAllowedBeforeBreaking: 5,
+                durationOfBreak: TimeSpan.FromSeconds(30),
+                onBreak: (ex, breakDelay) => logger.LogWarning(ex, "Write circuit breaker opened for {BreakDelay}", breakDelay),
+                onReset: () => logger.LogInformation("Write circuit breaker reset"));
+    }
+}
+
+// CognitiveValidation/Infrastructure/IRequestInterfaces.cs
+namespace CognitiveValidation.Infrastructure;
+
+public interface IBaseRequest { }
+
+public interface ICommand<TResponse> : IBaseRequest, IRequest<TResponse> where TResponse : IResult { }
+
+public interface IQuery<TResponse> : IBaseRequest, IRequest<TResponse> where TResponse : IResult { }
+
+public interface ICommandHandler<TCommand, TResponse> : IRequestHandler<TCommand, TResponse>
+    where TCommand : ICommand<TResponse>
+    where TResponse : IResult { }
+
+public interface IQueryHandler<TQuery, TResponse> : IRequestHandler<TQuery, TResponse>
+    where TQuery : IQuery<TResponse>
+    where TResponse : IResult { }
+
+// CognitiveValidation/Controllers/CognitiveAchievementsController.cs
+namespace CognitiveValidation.Controllers;
+
+[EnableRateLimiting("ApiRateLimit")]
+[ApiController]
+[Route("api/v1/cognitive-achievements")]
+[Authorize(Policy = "CognitiveValidationAccess")]
+public sealed class CognitiveAchievementsController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    private readonly ILogger<CognitiveAchievementsController> _logger;
+
+    public CognitiveAchievementsController(IMediator mediator, ILogger<CognitiveAchievementsController> logger)
+    {
+        _mediator = mediator;
+        _logger = logger;
+    }
+
+    [HttpPost]
+    [ProducesResponseType(typeof(ApiResponse<CognitiveAchievementDto>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> RegisterAchievement([FromBody] RegisterCognitiveAchievementCommand command, CancellationToken ct)
+    {
+        using var scope = _logger.BeginScope(new { CommandType = nameof(RegisterCognitiveAchievementCommand) });
+        var result = await _mediator.Send(command, ct);
+        if (!result.IsSuccess)
+            return BadRequest(new ApiResponse { Success = false, Errors = result.Errors.Select(e => e.Message).ToArray() });
+
+        return CreatedAtAction(nameof(GetAchievement), new { id = result.Value!.Id },
+            new ApiResponse<CognitiveAchievementDto> { Success = true, Data = MapToDto(result.Value) });
+    }
+
+    [HttpGet("{id:guid}")]
+    [ProducesResponseType(typeof(ApiResponse<CognitiveAchievementDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetAchievement(Guid id, CancellationToken ct)
+    {
+        using var scope = _logger.BeginScope(new { CommandType = nameof(GetCognitiveAchievementQuery) });
+        var result = await _mediator.Send(new GetCognitiveAchievementQuery(id), ct);
+        if (!result.IsSuccess)
+            return NotFound(new ApiResponse { Success = false, Errors = result.Errors.Select(e => e.Message).ToArray() });
+
+        return Ok(new ApiResponse<CognitiveAchievementDto> { Success = true, Data = MapToDto(result.Value!) });
+    }
+
+    [HttpGet]
+    [ProducesResponseType(typeof(ApiResponse<PagedResult<CognitiveAchievementDto>>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiResponse), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ListAchievements(
+        [FromQuery] int pageNumber = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? semanticFilter = null,
+        [FromQuery] string sortBy = nameof(CognitiveAchievement.CreatedAt),
+        [FromQuery] bool ascending = false,
+        CancellationToken ct = default)
+    {
+        using var scope = _logger.BeginScope(new { CommandType = nameof(ListCognitiveAchievementsQuery) });
+        var query = new ListCognitiveAchievementsQuery(pageNumber, pageSize, semanticFilter, sortBy, ascending);
+        var result = await _mediator.Send(query, ct);
+        if (!result.IsSuccess)
+            return BadRequest(new ApiResponse { Success = false, Errors = result.Errors.Select(e => e.Message).ToArray() });
+
+        var dtoResult = new PagedResult<CognitiveAchievementDto>(
+            result.Value!.Items.Select(MapToDto).ToList(),
+            result.Value.TotalCount,
+            result.Value.PageNumber,
+            result.Value.PageSize);
+
+        return Ok(new ApiResponse<PagedResult<CognitiveAchievementDto>> { Success = true, Data = dtoResult });
+    }
+
+    private static CognitiveAchievementDto MapToDto(CognitiveAchievement achievement) => new(
+        achievement.Id,
+        achievement.Description,
+        achievement.CreatedAt,
+        achievement.Impact.ToString(),
+        achievement.CausalCoherenceScore,
+        achievement.SemanticContext);
+}
+
+// CognitiveValidation/DependencyInjection.cs
+namespace CognitiveValidation;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddCognitiveValidationModule(this IServiceCollection services)
+    {
+        services.AddOptions<CognitiveValidationOptions>()
+            .BindConfiguration(CognitiveValidationOptions.SectionName)
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddSingleton<CircuitBreakerPolicies>();
+        services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<CognitiveValidationSpecification>();
+        services.AddTransient<IRepositoryFactory, RepositoryFactory>();
+        services.AddTransient<ICognitiveAchievementRepository>(sp => sp.GetRequiredService<IRepositoryFactory>().CreateRepository());
+        services.AddTransient<InMemoryCognitiveAchievementRepository>();
+        services.AddTransient<SqlCognitiveAchievementRepository>();
+        services.AddTransient<MongoCognitiveAchievementRepository>();
+        services.AddTransient<ICacheInvalidationService, RedisCacheInvalidationService>();
+        services.AddTransient<ICognitiveAchievementCache, RedisAchievementCache>();
+        services.AddTransient<ICognitiveAchievementService, CognitiveAchievementService>();
+        services.AddTransient<IConnectionMultiplexer>(sp => ConnectionMultiplexer.Connect(
+            sp.GetRequiredService<IOptions<CognitiveValidationOptions>>().Value.RedisConnectionString));
+
+        services.AddDbContext<CognitiveDbContext>(sp =>
+            sp.UseSqlServer(sp.GetRequiredService<IOptions<CognitiveValidationOptions>>().Value.SqlConnectionString));
+
+        services.AddMongoClient(sp =>
+            MongoClientSettings.FromConnectionString(sp.GetRequiredService<IOptions<CognitiveValidationOptions>>().Value.MongoConnectionString));
+
+        services.AddMediatR(cfg =>
+            cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly)
+                .AddBehavior(typeof(IPipelineBehavior<,>), typeof(LoggingBehavior<,>))
+                .AddBehavior(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>)));
+
+        services.AddValidatorsFromAssemblyContaining<RegisterAchievementValidator>();
+
+        services.AddHealthChecks()
+            .AddCheck<ICognitiveAchievementRepository>("AchievementRepository")
+            .AddCheck<ICognitiveAchievementCache>("AchievementCache");
+
+        services.AddOpenTelemetry()
+            .WithTracing(builder => builder
+                .AddSource(Telemetry.ServiceName)
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRedisInstrumentation(services.GetRequiredService<IConnectionMultiplexer>()))
+            .WithMetrics(builder => builder
+                .AddMeter(Telemetry.ServiceName));
+
+        services.AddStackExchangeRedisCache(sp =>
+        {
+            var config = sp.GetRequiredService<IOptions<CognitiveValidationOptions>>().Value;
+            sp.Configuration = config.RedisConnectionString;
+        });
+
+        services.AddRateLimiter(options =>
+            options.AddPolicy("ApiRateLimit", ctx => RateLimitPartition.GetFixedWindowLimiter(
+                ctx.User.Identity?.Name ?? "anonymous",
+                _ => new() { PermitLimit = 100, Window = TimeSpan.FromSeconds(10) })));
+
+        return services;
+    }
+}
+``````csharp
+// CognitiveValidation/Infrastructure/FormalVerificationEngine.cs
+namespace CognitiveValidation.Infrastructure;
+
+public sealed class FormalVerificationEngine
+{
+    private readonly CognitiveValidationSpecification _specification;
+
+    public FormalVerificationEngine(CognitiveValidationSpecification specification) => _specification = specification;
+
+    public Result VerifyAchievementInvariants(CognitiveAchievement achievement) => 
+        _specification.ValidateAchievement(achievement);
+
+    public Result VerifyDailyLimit(int count) => 
+        _specification.ValidateDailyLimit(count);
+}
+
+// CognitiveValidation/Services/IMetaLearningService.cs
+namespace CognitiveValidation.Services;
+
+public interface IMetaLearningService
+{
+    Task OptimizeCacheParametersAsync(CognitiveValidationOptions options, CancellationToken ct);
+}
+
+// CognitiveValidation/Services/MetaLearningService.cs
+namespace CognitiveValidation.Services;
+
+public sealed class MetaLearningService : IMetaLearningService
+{
+    private readonly ILogger<MetaLearningService> _logger;
+
+    public MetaLearningService(ILogger<MetaLearningService> logger) => _logger = logger;
+
+    public async Task OptimizeCacheParametersAsync(CognitiveValidationOptions options, CancellationToken ct)
+    {
+        _logger.LogInformation("Optimizing cache parameters: Current TTL = {TTL}s", options.CacheDuration.TotalSeconds);
+        // Placeholder for meta-learning: analyze cache hit/miss ratios, adjust TTL
+        await Task.CompletedTask;
+    }
+}
+
+// CognitiveValidation/Infrastructure/InputSanitizer.cs
+namespace CognitiveValidation.Infrastructure;
+
+public static class InputSanitizer
+{
+    private static readonly Regex SafeTextRegex = new(@"^[\w\s.,:;!?'""()-]+$", RegexOptions.Compiled);
+
+    public static string Sanitize(string? input) =>
+        string.IsNullOrWhiteSpace(input) ? string.Empty : SafeTextRegex.Replace(input, string.Empty);
+}
+
+// CognitiveValidation/Validators/CognitiveAchievementValidators.cs
+namespace CognitiveValidation.Validators;
+
+public sealed class RegisterAchievementValidator : AbstractValidator<RegisterCognitiveAchievementCommand>
+{
+    public RegisterAchievementValidator(IOptions<CognitiveValidationOptions> options)
+    {
+        var opts = options.Value;
+
+        RuleFor(x => x.Description)
+            .NotEmpty().WithErrorCode("DescriptionRequired")
+            .MaximumLength(opts.MaxDescriptionLength).WithErrorCode("DescriptionTooLong")
+            .Must(d => d == InputSanitizer.Sanitize(d)).WithErrorCode("InvalidDescription")
+            .WithMessage("Description contains invalid characters");
+
+        RuleFor(x => x.Impact)
+            .IsInEnum()
+            .NotEqual(CognitiveImpactLevel.Low).WithErrorCode("InvalidImpactLevel");
+
+        RuleFor(x => x.CausalCoherenceScore)
+            .InclusiveBetween(opts.MinCausalCoherenceThreshold, 1.0).WithErrorCode("InvalidCausalCoherence");
+
+        RuleFor(x => x.SemanticContext)
+            .NotEmpty().WithErrorCode("SemanticContextRequired")
+            .MaximumLength(opts.MaxSemanticContextLength).WithErrorCode("SemanticContextTooLong")
+            .Must(c => c == InputSanitizer.Sanitize(c)).WithErrorCode("InvalidSemanticContext")
+            .WithMessage("Semantic context contains invalid characters");
+    }
+}
+
+// CognitiveValidation/Tests/RegisterCognitiveAchievementHandlerTests.cs
+namespace CognitiveValidation.Tests;
+
+public class RegisterCognitiveAchievementHandlerTests
+{
+    private readonly Mock<ICognitiveAchievementService> _serviceMock = new();
+    private readonly Mock<IValidator<RegisterCognitiveAchievementCommand>> _validatorMock = new();
+    private readonly RegisterCognitiveAchievementHandler _handler;
+
+    public RegisterCognitiveAchievementHandlerTests()
+    {
+        _handler = new RegisterCognitiveAchievementHandler(_serviceMock.Object, _validatorMock.Object);
+    }
+
+    [Fact]
+    public async Task Handle_ValidCommand_ReturnsSuccess()
+    {
+        // Arrange
+        var command = new RegisterCognitiveAchievementCommand("Test", CognitiveImpactLevel.Medium, 0.75, "Context");
+        var achievement = new CognitiveAchievement(Guid.NewGuid(), "Test", DateTime.UtcNow, CognitiveImpactLevel.Medium, 0.75, "Context");
+        _validatorMock.Setup(v => v.ValidateAsync(command, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ValidationResult());
+        _serviceMock.Setup(s => s.RegisterAsync(command, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<CognitiveAchievement>.Success(achievement));
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().Be(achievement);
+    }
+
+    [Fact]
+    public async Task Handle_InvalidCommand_ReturnsFailure()
+    {
+        // Arrange
+        var command = new RegisterCognitiveAchievementCommand("", CognitiveImpactLevel.Low, -1, "");
+        var validationResult = new ValidationResult(new[]
+        {
+            new ValidationFailure("Description", "Description cannot be empty", "DescriptionRequired"),
+            new ValidationFailure("Impact", "Impact level cannot be Low", "InvalidImpactLevel")
+        });
+        _validatorMock.Setup(v => v.ValidateAsync(command, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(validationResult);
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.Errors.Should().HaveCount(2);
+    }
+}
+
+// CognitiveValidation/Tests/CognitiveAchievementServiceTests.cs
+namespace CognitiveValidation.Tests;
+
+public class CognitiveAchievementServiceTests
+{
+    private readonly Mock<ICognitiveAchievementRepository> _repoMock = new();
+    private readonly Mock<ICognitiveAchievementCache> _cacheMock = new();
+    private readonly Mock<ICacheInvalidationService> _invalidationMock = new();
+    private readonly Mock<CognitiveValidationSpecification> _specMock = new();
+    private readonly Mock<IClock> _clockMock = new();
+    private readonly Mock<ILogger<CognitiveAchievementService>> _loggerMock = new();
+    private readonly CognitiveAchievementService _service;
+
+    public CognitiveAchievementServiceTests()
+    {
+        _service = new CognitiveAchievementService(
+            _repoMock.Object, _cacheMock.Object, _invalidationMock.Object, 
+            _specMock.Object, _clockMock.Object, _loggerMock.Object);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_ValidCommand_ReturnsSuccess()
+    {
+        // Arrange
+        var command = new RegisterCognitiveAchievementCommand("Test", CognitiveImpactLevel.Medium, 0.75, "Context");
+        var achievement = new CognitiveAchievement(Guid.NewGuid(), "Test", DateTime.UtcNow, CognitiveImpactLevel.Medium, 0.75, "Context");
+        _clockMock.Setup(c => c.UtcNow).Returns(DateTime.UtcNow);
+        _specMock.Setup(s => s.ValidateAchievement(It.IsAny<CognitiveAchievement>())).Returns(Result.Success());
+        _specMock.Setup(s => s.ValidateDailyLimit(It.IsAny<int>())).Returns(Result.Success());
+        _repoMock.Setup(r => r.AddAsync(It.IsAny<CognitiveAchievement>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result<Unit>.Success(Unit.Value));
+        _repoMock.Setup(r => r.CountByDateAsync(It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(0);
+
+        // Act
+        var result = await _service.RegisterAsync(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        _cacheMock.Verify(c => c.SetByIdAsync(It.IsAny<CognitiveAchievement>(), It.IsAny<CancellationToken>()), Times.Once());
+        _invalidationMock.Verify(i => i.InvalidateListAsync(It.IsAny<CancellationToken>()), Times.Once());
+    }
+}
+```
+
