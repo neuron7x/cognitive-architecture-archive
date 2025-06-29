@@ -1,0 +1,1178 @@
+```plaintext
+quantum-neuro-sim/
+├── apps/
+│   ├── api/                        # C# RESTful API (ASP.NET Core 8)
+│   │   ├── Controllers/            # API endpoints
+│   │   ├── Middleware/             # Exception handling
+│   │   ├── Program.cs              # Entry point
+│   │   ├── Startup.cs             # DI & config
+│   │   └── Models/                 # DTOs
+│   ├── topology-service/           # Python FastAPI for persistent homology
+│   │   ├── src/
+│   │   ├── tests/
+│   │   ├── Dockerfile
+│   │   └── requirements.txt
+├── packages/
+│   ├── domain/                     # Entities: Neuron, SynapticConnection, TopologyResult
+│   ├── application/                # CQRS: Commands, Queries, Sagas
+│   ├── infrastructure/             # Repositories, external services
+│   └── tests/                      # Unit & integration tests
+├── infrastructure/
+│   ├── terraform/                  # IaC for AWS/GCP
+│   ├── kubernetes/                 # K8s manifests
+│   ├── helm/                       # Helm charts
+│   └── monitoring/                 # Prometheus/Grafana configs
+├── docs/
+│   ├── api.md                     # OpenAPI v3 spec
+│   ├── architecture.md            # System design
+│   └── contributing.md            # Contribution guidelines
+├── .github/
+│   └── workflows/                 # CI/CD pipelines
+├── Dockerfile                     # Multi-stage Docker
+├── docker-compose.yml             # Local dev environment
+├── README.md                      # Project overview
+├── LICENSE                        # MIT License
+└── .gitignore                     # Standard ignores
+```
+
+### Domain Layer
+
+**domain/Entities/Neuron.cs**
+```csharp
+using System;
+
+namespace QuantumNeuroSim.Domain.Entities
+{
+    public class Neuron
+    {
+        public int Id { get; private set; }
+        public double MembranePotential { get; private set; } // V_i (mV)
+        public double CalciumConcentration { get; private set; } // [Ca²⁺] (µM)
+        public DateTime LastSpikeTime { get; private set; }
+
+        private Neuron() { } // For EF Core
+
+        public Neuron(int id, double initialPotential = -70.0, double initialCalcium = 0.1)
+        {
+            if (id < 0) throw new BusinessRuleViolationException("InvalidNeuronId", new { Id = id });
+            Id = id;
+            MembranePotential = initialPotential;
+            CalciumConcentration = initialCalcium;
+            LastSpikeTime = DateTime.MinValue;
+        }
+
+        public void UpdateState(double deltaV, double deltaCa, DateTime spikeTime, double threshold = -55.0)
+        {
+            if (double.IsNaN(deltaV) || double.IsInfinity(deltaV))
+                throw new BusinessRuleViolationException("InvalidPotential", new { DeltaV = deltaV });
+
+            MembranePotential += deltaV;
+            CalciumConcentration = Math.Max(0, CalciumConcentration + deltaCa);
+            if (MembranePotential > threshold)
+            {
+                LastSpikeTime = spikeTime;
+                MembranePotential = -70.0; // Reset
+            }
+        }
+    }
+}
+```
+
+**domain/ValueObjects/SynapticConnection.cs**
+```csharp
+namespace QuantumNeuroSim.Domain.ValueObjects
+{
+    public class SynapticConnection
+    {
+        public int SourceNeuronId { get; private set; }
+        public int TargetNeuronId { get; private set; }
+        public double Weight { get; private set; }
+        private const double MaxWeight = 1.0;
+
+        public SynapticConnection(int sourceId, int targetId, double initialWeight)
+        {
+            if (initialWeight < 0 || initialWeight > MaxWeight)
+                throw new BusinessRuleViolationException("InvalidWeight", new { InitialWeight = initialWeight });
+            SourceNeuronId = sourceId;
+            TargetNeuronId = targetId;
+            Weight = initialWeight;
+        }
+
+        public void UpdateWeight(double deltaW)
+        {
+            Weight = Math.Clamp(Weight + deltaW, 0, MaxWeight);
+        }
+    }
+}
+```
+
+**domain/Entities/TopologyResult.cs**
+```csharp
+namespace QuantumNeuroSim.Domain.Entities
+{
+    public class TopologyResult
+    {
+        public int NeuronId { get; private set; }
+        public int BettiNumber { get; private set; }
+        public DateTime CalculatedAt { get; private set; }
+
+        public TopologyResult(int neuronId, int bettiNumber)
+        {
+            NeuronId = neuronId;
+            BettiNumber = bettiNumber;
+            CalculatedAt = DateTime.UtcNow;
+        }
+    }
+}
+```
+
+**domain/Exceptions/BusinessRuleViolationException.cs**
+```csharp
+namespace QuantumNeuroSim.Domain.Exceptions
+{
+    public class BusinessRuleViolationException : Exception
+    {
+        public string RuleCode { get; }
+        public object Context { get; }
+
+        public BusinessRuleViolationException(string ruleCode, object context, string message = null)
+            : base(message ?? $"Business rule violation: {ruleCode}")
+        {
+            RuleCode = ruleCode;
+            Context = context;
+        }
+    }
+}
+```
+
+### Application Layer
+
+**application/Commands/SimulateNeuronCommand.cs**
+```csharp
+using MediatR;
+using QuantumNeuroSim.Domain.Entities;
+
+namespace QuantumNeuroSim.Application.Commands
+{
+    public class SimulateNeuronCommand : IRequest<Result<Neuron>>
+    {
+        public int NeuronId { get; init; }
+        public double InputCurrent { get; init; }
+    }
+}
+```
+
+**application/Queries/ComputeBettiNumberQuery.cs**
+```csharp
+using MediatR;
+using QuantumNeuroSim.Domain.Entities;
+
+namespace QuantumNeuroSim.Application.Queries
+{
+    public class ComputeBettiNumberQuery : IRequest<Result<TopologyResult>>
+    {
+        public int NeuronId { get; init; }
+    }
+}
+```
+
+**application/Results/Result.cs**
+```csharp
+namespace QuantumNeuroSim.Application
+{
+    public class Result<T>
+    {
+        public bool IsSuccess { get; }
+        public T Value { get; }
+        public string Error { get; }
+        public string ErrorDetails { get; }
+
+        private Result(T value)
+        {
+            IsSuccess = true;
+            Value = value;
+            Error = null;
+            ErrorDetails = null;
+        }
+
+        private Result(string error, string errorDetails = null)
+        {
+            IsSuccess = false;
+            Value = default;
+            Error = error;
+            ErrorDetails = errorDetails;
+        }
+
+        public static Result<T> Success(T value) => new Result<T>(value);
+        public static Result<T> Failure(string error, string errorDetails = null) => new Result<T>(error, errorDetails);
+    }
+}
+```
+
+**application/Handlers/SimulateNeuronCommandHandler.cs**
+```csharp
+using MathNet.Numerics.Random;
+using MediatR;
+using Microsoft.Extensions.Logging;
+using QuantumNeuroSim.Application.Commands;
+using QuantumNeuroSim.Domain.Entities;
+using QuantumNeuroSim.Infrastructure.Repositories;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Distributed;
+using System.Text.Json;
+
+namespace QuantumNeuroSim.Application.Handlers
+{
+    public class SimulateNeuronCommandHandler : IRequestHandler<SimulateNeuronCommand, Result<Neuron>>
+    {
+        private readonly INeuronRepository _neuronRepository;
+        private readonly IDistributedCache _cache;
+        private readonly ILogger<SimulateNeuronCommandHandler> _logger;
+        private readonly Random _random = new WH2006(RandomSeed.Robust());
+        private const double Hurst = 0.8;
+
+        public SimulateNeuronCommandHandler(
+            INeuronRepository neuronRepository,
+            IDistributedCache cache,
+            ILogger<SimulateNeuronCommandHandler> logger)
+        {
+            _neuronRepository = neuronRepository ?? throw new ArgumentNullException(nameof(neuronRepository));
+            _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public async Task<Result<Neuron>> Handle(SimulateNeuronCommand request, CancellationToken ct)
+        {
+            using var scope = _logger.BeginScope(new
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                RequestId = Guid.NewGuid().ToString(),
+                NeuronId = request.NeuronId
+            });
+
+            try
+            {
+                var cacheKey = $"neuron:{request.NeuronId}";
+                var cached = await _cache.GetStringAsync(cacheKey, ct).ConfigureAwait(false);
+                if (cached != null)
+                {
+                    _logger.LogInformation("Retrieved neuron {NeuronId} from cache", request.NeuronId);
+                    return Result<Neuron>.Success(JsonSerializer.Deserialize<Neuron>(cached));
+                }
+
+                var neuron = await _neuronRepository.GetByIdAsync(request.NeuronId, ct).ConfigureAwait(false);
+                if (neuron == null)
+                {
+                    _logger.LogWarning("Neuron {NeuronId} not found", request.NeuronId);
+                    return Result<Neuron>.Failure("NeuronNotFound");
+                }
+
+                // Hodgkin-Huxley with fBm (H=0.8)
+                double deltaV = (-0.04 * neuron.MembranePotential - 0.1 * neuron.CalciumConcentration + request.InputCurrent) / 10.0;
+                double fBmNoise = GenerateFractionalBrownianNoise();
+                double deltaCa = 0.01 * request.InputCurrent;
+
+                neuron.UpdateState(deltaV + fBmNoise, deltaCa, DateTime.UtcNow);
+                await _neuronRepository.UpdateAsync(neuron, ct).ConfigureAwait(false);
+
+                await _cache.SetStringAsync(cacheKey, JsonSerializer.Serialize(neuron), new DistributedCacheEntryOptions
+                {
+                    AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+                }, ct).ConfigureAwait(false);
+
+                _logger.LogInformation("Neuron {NeuronId} simulated successfully", request.NeuronId);
+                return Result<Neuron>.Success(neuron);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to simulate neuron {NeuronId}", request.NeuronId);
+                return Result<Neuron>.Failure("SimulationFailed", ex.Message);
+            }
+        }
+
+        private double GenerateFractionalBrownianNoise()
+        {
+            return _random.NextDouble() * 0.01 * Math.Pow(Hurst, 2); // Simplified, use MathNet.Numerics for production
+        }
+    }
+}
+```
+
+**application/Handlers/ComputeBettiNumberQueryHandler.cs**
+```csharp
+using MediatR;
+using Microsoft.Extensions.Logging;
+using QuantumNeuroSim.Application.Queries;
+using QuantumNeuroSim.Domain.Entities;
+using QuantumNeuroSim.Infrastructure.External;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace QuantumNeuroSim.Application.Handlers
+{
+    public class ComputeBettiNumberQueryHandler : IRequestHandler<ComputeBettiNumberQuery, Result<TopologyResult>>
+    {
+        private readonly ITopologyService _topologyService;
+        private readonly ILogger<ComputeBettiNumberQueryHandler> _logger;
+
+        public ComputeBettiNumberQueryHandler(ITopologyService topologyService, ILogger<ComputeBettiNumberQueryHandler> logger)
+        {
+            _topologyService = topologyService ?? throw new ArgumentNullException(nameof(topologyService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public async Task<Result<TopologyResult>> Handle(ComputeBettiNumberQuery request, CancellationToken ct)
+        {
+            using var scope = _logger.BeginScope(new
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                RequestId = Guid.NewGuid().ToString()
+            });
+
+            try
+            {
+                int bettiNumber = await _topologyService.ComputeBettiNumberAsync(request.NeuronId, ct).ConfigureAwait(false);
+                var result = new TopologyResult(request.NeuronId, bettiNumber);
+
+                _logger.LogInformation("Computed Betti number {BettiNumber} for neuron {NeuronId}", bettiNumber, request.NeuronId);
+                return Result<TopologyResult>.Success(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to compute Betti number for neuron {NeuronId}", request.NeuronId);
+                return Result<TopologyResult>.Failure("TopologyCalculationFailed", ex.Message);
+            }
+        }
+    }
+}
+```
+
+**application/Services/QuantumOrchOrService.cs**
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace QuantumNeuroSim.Application.Services
+{
+    public interface IQuantumOrchOrService
+    {
+        Task<double> ComputeQuantumStateAsync(int neuronId, double inputEnergy, CancellationToken ct);
+    }
+
+    public class QuantumOrchOrService : IQuantumOrchOrService
+    {
+        private readonly ILogger<QuantumOrchOrService> _logger;
+
+        public QuantumOrchOrService(ILogger<QuantumOrchOrService> logger)
+        {
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public async Task<double> ComputeQuantumStateAsync(int neuronId, double inputEnergy, CancellationToken ct)
+        {
+            using var scope = _logger.BeginScope(new
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                RequestId = Guid.NewGuid().ToString()
+            });
+
+            try
+            {
+                // Simplified Orch-OR simulation (Hamiltonian evolution)
+                // For production, integrate QuTiP via Python service
+                double quantumState = Math.Sin(inputEnergy * 0.1) * 0.5; // Placeholder
+                _logger.LogInformation("Computed quantum state for neuron {NeuronId}: {QuantumState}", neuronId, quantumState);
+                return quantumState;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to compute quantum state for neuron {NeuronId}", neuronId);
+                throw new BusinessRuleViolationException("QuantumCalculationFailed", new { NeuronId = neuronId }, ex.Message);
+            }
+        }
+    }
+}
+```
+
+**application/Sagas/NeuronSimulationSaga.cs**
+```csharp
+using MediatR;
+using Microsoft.Extensions.Logging;
+using QuantumNeuroSim.Application.Commands;
+using QuantumNeuroSim.Application.Queries;
+using QuantumNeuroSim.Domain.Exceptions;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace QuantumNeuroSim.Application.Sagas
+{
+    public class NeuronSimulationSaga
+    {
+        private readonly IMediator _mediator;
+        private readonly IQuantumOrchOrService _quantumService;
+        private readonly ILogger<NeuronSimulationSaga> _logger;
+
+        public NeuronSimulationSaga(IMediator mediator, IQuantumOrchOrService quantumService, ILogger<NeuronSimulationSaga> logger)
+        {
+            _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
+            _quantumService = quantumService ?? throw new ArgumentNullException(nameof(quantumService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public async Task ExecuteAsync(int neuronId, double inputCurrent, CancellationToken ct)
+        {
+            using var scope = _logger.BeginScope(new { CorrelationId = Guid.NewGuid().ToString() });
+
+            try
+            {
+                // Step 1: Simulate neuron
+                var simResult = await _mediator.Send(new SimulateNeuronCommand { NeuronId = neuronId, InputCurrent = inputCurrent }, ct).ConfigureAwait(false);
+                if (!simResult.IsSuccess)
+                    throw new BusinessRuleViolationException("SimulationFailed", new { NeuronId = neuronId });
+
+                // Step 2: Compute quantum state
+                var quantumState = await _quantumService.ComputeQuantumStateAsync(neuronId, inputCurrent, ct).ConfigureAwait(false);
+
+                // Step 3: Compute topology
+                var topoResult = await _mediator.Send(new ComputeBettiNumberQuery { NeuronId = neuronId }, ct).ConfigureAwait(false);
+                if (!topoResult.IsSuccess)
+                    throw new BusinessRuleViolationException("TopologyFailed", new { NeuronId = neuronId });
+
+                _logger.LogInformation("Saga completed for neuron {NeuronId}, quantum state: {QuantumState}", neuronId, quantumState);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Saga failed for neuron {NeuronId}", neuronId);
+                throw;
+            }
+        }
+    }
+}
+```
+
+### Infrastructure Layer
+
+**infrastructure/Repositories/NeuronRepository.cs**
+```csharp
+using Microsoft.EntityFrameworkCore;
+using QuantumNeuroSim.Domain.Entities;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace QuantumNeuroSim.Infrastructure.Repositories
+{
+    public interface INeuronRepository
+    {
+        Task<Neuron> GetByIdAsync(int id, CancellationToken ct);
+        Task UpdateAsync(Neuron neuron, CancellationToken ct);
+    }
+
+    public class NeuronRepository : INeuronRepository
+    {
+        private readonly ApplicationDbContext _context;
+
+        public NeuronRepository(ApplicationDbContext context)
+        {
+            _context = context ?? throw new ArgumentNullException(nameof(context));
+        }
+
+        public async Task<Neuron> GetByIdAsync(int id, CancellationToken ct)
+        {
+            return await _context.Neurons
+                .AsNoTracking()
+                .FirstOrDefaultAsync(n => n.Id == id, ct)
+                .ConfigureAwait(false);
+        }
+
+        public async Task UpdateAsync(Neuron neuron, CancellationToken ct)
+        {
+            _context.Neurons.Update(neuron);
+            await _context.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+    }
+}
+```
+
+**infrastructure/External/TopologyService.cs**
+```csharp
+using Polly;
+using System;
+using System.Net.Http;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace QuantumNeuroSim.Infrastructure.External
+{
+    public interface ITopologyService
+    {
+        Task<int> ComputeBettiNumberAsync(int neuronId, CancellationToken ct);
+    }
+
+    public class TopologyService : ITopologyService, IDisposable
+    {
+        private readonly HttpClient _httpClient;
+        private readonly ILogger<TopologyService> _logger;
+        private bool _disposed;
+
+        public TopologyService(IHttpClientFactory httpClientFactory, ILogger<TopologyService> logger)
+        {
+            _httpClient = httpClientFactory.CreateClient("TopologyApi");
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        public async Task<int> ComputeBettiNumberAsync(int neuronId, CancellationToken ct)
+        {
+            var policy = Policy
+                .Handle<HttpRequestException>()
+                .OrResult<HttpResponseMessage>(r => !r.IsSuccessStatusCode)
+                .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt)),
+                    (exception, timeSpan, retryCount, context) =>
+                        _logger.LogWarning("Retry {RetryCount} for neuron {NeuronId} after {TimeSpan}ms",
+                            retryCount, neuronId, timeSpan.TotalMilliseconds));
+
+            var response = await policy.ExecuteAsync(async () =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, $"/api/topology/betti?neuronId={neuronId}");
+                return await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+            });
+
+            response.EnsureSuccessStatusCode();
+            var content = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            return JsonSerializer.Deserialize<int>(content);
+        }
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                _httpClient?.Dispose();
+                _disposed = true;
+            }
+        }
+    }
+}
+```
+
+**infrastructure/Database/ApplicationDbContext.cs**
+```csharp
+using Microsoft.EntityFrameworkCore;
+using QuantumNeuroSim.Domain.Entities;
+
+namespace QuantumNeuroSim.Infrastructure
+{
+    public class ApplicationDbContext : DbContext
+    {
+        public DbSet<Neuron> Neurons { get; set; }
+        public DbSet<TopologyResult> TopologyResults { get; set; }
+
+        public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
+            : base(options)
+        {
+        }
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            modelBuilder.Entity<Neuron>()
+                .HasIndex(n => n.Id)
+                .IsUnique();
+
+            modelBuilder.Entity<TopologyResult>()
+                .HasIndex(t => new { t.NeuronId, t.CalculatedAt });
+        }
+    }
+}
+```
+
+### Presentation Layer
+
+**api/Controllers/NeuronController.cs**
+```csharp
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using QuantumNeuroSim.Application.Commands;
+using QuantumNeuroSim.Application.Queries;
+using QuantumNeuroSim.Domain.Entities;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.RateLimiting;
+
+namespace QuantumNeuroSim.Api.Controllers
+{
+    [ApiController]
+    [Route("api/v1/neurons")]
+    [ApiVersion("1.0")]
+    [Authorize(Policy = "RequireNeuronAccess")]
+    [EnableRateLimiting("ApiRateLimit")]
+    public class NeuronController : ControllerBase
+    {
+        private readonly IMediator _mediator;
+        private readonly ILogger<NeuronController> _logger;
+
+        public NeuronController(IMediator mediator, ILogger<NeuronController> logger)
+        {
+            _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
+
+        [HttpPost("{neuronId}/simulate")]
+        [ProducesResponseType(typeof(ApiResponse<Neuron>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> SimulateNeuron(int neuronId, [FromBody] SimulateNeuronRequest request)
+        {
+            using var scope = _logger.BeginScope(new
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                RequestId = Guid.NewGuid().ToString()
+            });
+
+            var command = new SimulateNeuronCommand { NeuronId = neuronId, InputCurrent = request.InputCurrent };
+            var result = await _mediator.Send(command).ConfigureAwait(false);
+
+            if (!result.IsSuccess)
+            {
+                _logger.LogWarning("Simulation failed for neuron {NeuronId}: {Error}", neuronId, result.Error);
+                return BadRequest(new ApiResponse<object> { Success = false, Errors = new() { result.Error } });
+            }
+
+            return Ok(new ApiResponse<Neuron> { Success = true, Data = result.Value });
+        }
+
+        [HttpGet("{neuronId}/betti")]
+        [ProducesResponseType(typeof(ApiResponse<TopologyResult>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<object>), StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> GetBettiNumber(int neuronId)
+        {
+            using var scope = _logger.BeginScope(new
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                RequestId = Guid.NewGuid().ToString()
+            });
+
+            var query = new ComputeBettiNumberQuery { NeuronId = neuronId };
+            var result = await _mediator.Send(query).ConfigureAwait(false);
+
+            if (!result.IsSuccess)
+            {
+                _logger.LogWarning("Betti number calculation failed for neuron {NeuronId}: {Error}", neuronId, result.Error);
+                return BadRequest(new ApiResponse<object> { Success = false, Errors = new() { result.Error } });
+            }
+
+            return Ok(new ApiResponse<TopologyResult> { Success = true, Data = result.Value });
+        }
+    }
+
+    public class SimulateNeuronRequest
+    {
+        public double InputCurrent { get; set; }
+    }
+
+    public class ApiResponse<T>
+    {
+        public bool Success { get; set; }
+        public T Data { get; set; }
+        public List<string> Errors { get; set; }
+    }
+}
+```
+
+**api/Middleware/GlobalExceptionHandlingMiddleware.cs**
+```csharp
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using QuantumNeuroSim.Domain.Exceptions;
+using System;
+using System.Threading.Tasks;
+
+namespace QuantumNeuroSim.Api.Middleware
+{
+    public class GlobalExceptionHandlingMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private readonly ILogger<GlobalExceptionHandlingMiddleware> _logger;
+
+        public GlobalExceptionHandlingMiddleware(RequestDelegate next, ILogger<GlobalExceptionHandlingMiddleware> logger)
+        {
+            _next = next;
+            _logger = logger;
+        }
+
+        public async Task InvokeAsync(HttpContext context)
+        {
+            try
+            {
+                await _next(context);
+            }
+            catch (BusinessRuleViolationException ex)
+            {
+                _logger.LogWarning(ex, "Business rule violation: {RuleCode}", ex.RuleCode);
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(new { ex.RuleCode, ex.Message, Context = ex.Context });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error occurred");
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                await context.Response.WriteAsJsonAsync(new { Error = "InternalServerError", Message = ex.Message });
+            }
+        }
+    }
+}
+```
+
+### Topology Service (Python)
+
+**topology-service/src/topology_service.py**
+```python
+from fastapi import FastAPI, HTTPException
+import gudhi
+import numpy as np
+import logging
+from typing import List
+from prometheus_client import Counter, Histogram, start_http_server
+
+app = FastAPI()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+request_counter = Counter('topology_requests_total', 'Total topology API requests', ['endpoint'])
+request_duration = Histogram('topology_request_duration_seconds', 'Request duration', ['endpoint'])
+
+@app.on_event("startup")
+async def startup_event():
+    start_http_server(8001)
+
+@app.get("/api/topology/betti")
+@request_duration.labels(endpoint='/api/topology/betti').time()
+async def compute_betti_number(neuron_id: int):
+    request_counter.labels(endpoint='/api/topology/betti').inc()
+    try:
+        points = np.random.rand(100, 3)  # Replace with real neural connectivity data
+        rips_complex = gudhi.RipsComplex(points=points, max_edge_length=0.5)
+        simplex_tree = rips_complex.create_simplex_tree(max_dimension=2)
+        
+        persistence = simplex_tree.persistence()
+        betti_numbers = simplex_tree.betti_numbers()
+        
+        logger.info(f"Computed Betti numbers for neuron {neuron_id}: {betti_numbers}")
+        return betti_numbers[1]
+    except Exception as e:
+        logger.error(f"Error computing Betti number for neuron {neuron_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+**topology-service/Dockerfile**
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src/ .
+EXPOSE 8000 8001
+CMD ["uvicorn", "topology_service:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+**topology-service/requirements.txt**
+```
+fastapi==0.115.0
+gudhi==3.9.0
+numpy==1.26.4
+uvicorn==0.30.6
+prometheus-client==0.20.0
+```
+
+**topology-service/tests/test_topology_service.py**
+```python
+import pytest
+from fastapi.testclient import TestClient
+from topology_service import app
+
+client = TestClient(app)
+
+def test_compute_betti_number():
+    response = client.get("/api/topology/betti?neuronId=1")
+    assert response.status_code == 200
+    assert isinstance(response.json(), int)
+```
+
+### Dependency Injection
+
+**api/Program.cs**
+```csharp
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using QuantumNeuroSim.Application.Handlers;
+using QuantumNeuroSim.Application.Services;
+using QuantumNeuroSim.Infrastructure;
+using QuantumNeuroSim.Infrastructure.External;
+using QuantumNeuroSim.Infrastructure.Repositories;
+using Microsoft.EntityFrameworkCore;
+using MediatR;
+using Polly;
+using System;
+using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.RateLimiting;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddStackExchangeRedisCache(options =>
+    options.Configuration = builder.Configuration.GetConnectionString("Redis"));
+
+builder.Services.AddHttpClient("TopologyApi", client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["TopologyService:BaseUrl"]);
+}).AddPolicyHandler(Policy
+    .Handle<HttpRequestException>()
+    .WaitAndRetryAsync(3, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt))));
+
+builder.Services.AddScoped<INeuronRepository, NeuronRepository>();
+builder.Services.AddScoped<ITopologyService, TopologyService>();
+builder.Services.AddScoped<IQuantumOrchOrService, QuantumOrchOrService>();
+builder.Services.AddMediatR(typeof(SimulateNeuronCommandHandler).Assembly);
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracer => tracer
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddEntityFrameworkCoreInstrumentation());
+
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<ApplicationDbContext>()
+    .AddRedis(builder.Configuration.GetConnectionString("Redis"));
+
+builder.Services.AddControllers();
+builder.Services.AddApiVersioning();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "QuantumNeuroSim API", Version = "v1" });
+});
+
+builder.Services.AddRateLimiting(options =>
+{
+    options.AddFixedWindowLimiter("ApiRateLimit", new()
+    {
+        PermitLimit = 100,
+        Window = TimeSpan.FromSeconds(10)
+    });
+});
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("RequireNeuronAccess", policy =>
+        policy.RequireRole("Admin", "Researcher"));
+});
+
+var app = builder.Build();
+app.UseMiddleware<GlobalExceptionHandlingMiddleware>();
+app.UseRouting();
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseSwagger();
+app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "QuantumNeuroSim API v1"));
+app.MapControllers();
+app.MapHealthChecks("/health");
+
+app.Run();
+```
+
+### Tests
+
+**tests/NeuronTests.cs**
+```csharp
+using FluentAssertions;
+using Moq;
+using QuantumNeuroSim.Application.Handlers;
+using QuantumNeuroSim.Domain.Entities;
+using QuantumNeuroSim.Infrastructure.Repositories;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace QuantumNeuroSim.Tests
+{
+    public class NeuronTests
+    {
+        private readonly Mock<INeuronRepository> _neuronRepositoryMock = new();
+        private readonly Mock<IDistributedCache> _cacheMock = new();
+        private readonly Mock<ILogger<SimulateNeuronCommandHandler>> _loggerMock = new();
+
+        [Fact]
+        public async Task SimulateNeuron_ValidInput_ReturnsSuccess()
+        {
+            var neuron = new Neuron(1, -70.0, 0.1);
+            _neuronRepositoryMock.Setup(r => r.GetByIdAsync(1, default)).ReturnsAsync(neuron);
+            var handler = new SimulateNeuronCommandHandler(_neuronRepositoryMock.Object, _cacheMock.Object, _loggerMock.Object);
+
+            var result = await handler.Handle(new SimulateNeuronCommand { NeuronId = 1, InputCurrent = 0.5 }, default);
+
+            result.IsSuccess.Should().BeTrue();
+            result.Value.MembranePotential.Should().BeGreaterThan(-70.0);
+        }
+
+        [Fact]
+        public async Task SimulateNeuron_NeuronNotFound_ReturnsFailure()
+        {
+            _neuronRepositoryMock.Setup(r => r.GetByIdAsync(1, default)).ReturnsAsync((Neuron)null);
+            var handler = new SimulateNeuronCommandHandler(_neuronRepositoryMock.Object, _cacheMock.Object, _loggerMock.Object);
+
+            var result = await handler.Handle(new SimulateNeuronCommand { NeuronId = 1, InputCurrent = 0.5 }, default);
+
+            result.IsSuccess.Should().BeFalse();
+            result.Error.Should().Be("NeuronNotFound");
+        }
+    }
+}
+```
+
+**tests/TopologyTests.cs**
+```csharp
+using FluentAssertions;
+using Moq;
+using QuantumNeuroSim.Application.Handlers;
+using QuantumNeuroSim.Infrastructure.External;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace QuantumNeuroSim.Tests
+{
+    public class TopologyTests
+    {
+        private readonly Mock<ITopologyService> _topologyServiceMock = new();
+        private readonly Mock<ILogger<ComputeBettiNumberQueryHandler>> _loggerMock = new();
+
+        [Fact]
+        public async Task ComputeBettiNumber_ValidInput_ReturnsSuccess()
+        {
+            _topologyServiceMock.Setup(s => s.ComputeBettiNumberAsync(1, default)).ReturnsAsync(1);
+            var handler = new ComputeBettiNumberQueryHandler(_topologyServiceMock.Object, _loggerMock.Object);
+
+            var result = await handler.Handle(new ComputeBettiNumberQuery { NeuronId = 1 }, default);
+
+            result.IsSuccess.Should().BeTrue();
+            result.Value.BettiNumber.Should().Be(1);
+        }
+    }
+}
+```
+
+**tests/QuantumOrchOrTests.cs**
+```csharp
+using FluentAssertions;
+using Moq;
+using QuantumNeuroSim.Application.Services;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace QuantumNeuroSim.Tests
+{
+    public class QuantumOrchOrTests
+    {
+        private readonly Mock<ILogger<QuantumOrchOrService>> _loggerMock = new();
+
+        [Fact]
+        public async Task ComputeQuantumState_ValidInput_ReturnsValidState()
+        {
+            var service = new QuantumOrchOrService(_loggerMock.Object);
+
+            var result = await service.ComputeQuantumStateAsync(1, 0.5, default);
+
+            result.Should().BeInRange(-1.0, 1.0);
+        }
+    }
+}
+```
+
+### CI/CD Pipeline
+
+**.github/workflows/ci-cd.yml**
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          cd apps/api
+          dotnet restore
+          cd ../topology-service
+          pip install -r requirements.txt
+      - name: Build
+        run: |
+          cd apps/api
+          dotnet build --configuration Release
+      - name: Test
+        run: |
+          cd apps/api
+          dotnet test --configuration Release
+          cd ../topology-service
+          pytest tests/
+      - name: Security Scan
+        run: |
+          cd apps/api
+          dotnet list package --vulnerable
+          cd ../topology-service
+          pip-audit
+
+  deploy:
+    needs: build-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and Push Docker
+        run: |
+          cd apps/api
+          docker build -t ghcr.io/user/quantum-neuro-sim-api:latest .
+          cd ../topology-service
+          docker build -t ghcr.io/user/quantum-neuro-sim-topology:latest .
+          docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
+          docker push ghcr.io/user/quantum-neuro-sim-api:latest
+          docker push ghcr.io/user/quantum-neuro-sim-topology:latest
+```
+
+### Documentation
+
+**README.md**
+```markdown
+# QuantumNeuroSim
+
+Production-ready platform for simulating neural dynamics with multi-fractal stochastic processes and persistent homology (Betti numbers). Supports quantum-inspired Orch-OR modeling.
+
+## Quick Start
+
+```bash
+docker-compose up -d
+curl -X POST http://localhost:5000/api/v1/neurons/1/simulate -H "Content-Type: application/json" -d '{"inputCurrent": 0.5}'
+```
+
+## Architecture
+
+- **C# API**: ASP.NET Core 8, CQRS, Saga, Redis caching
+- **Python Topology Service**: FastAPI, Gudhi for persistent homology
+- **Database**: PostgreSQL
+- **Infra**: Docker, Kubernetes, Terraform
+- **Monitoring**: Prometheus, Grafana
+
+## Endpoints
+
+- `POST /api/v1/neurons/{id}/simulate`: Simulates neural dynamics
+- `GET /api/v1/neurons/{id}/betti`: Computes Betti number
+
+## Setup
+
+1. Install Docker
+2. `docker-compose up -d`
+3. Access API at `http://localhost:5000`
+
+## License
+
+MIT
+```
+
+**docs/api.md**
+```markdown
+# API Documentation
+
+## POST /api/v1/neurons/{neuronId}/simulate
+
+Simulates neural dynamics.
+
+**Request:**
+```json
+{
+  "inputCurrent": 0.5
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "membranePotential": -69.5,
+    "calciumConcentration": 0.11,
+    "lastSpikeTime": "2025-06-29T17:00:00Z"
+  }
+}
+```
+
+## GET /api/v1/neurons/{neuronId}/betti
+
+Computes Betti number.
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "neuronId": 1,
+    "bettiNumber": 1,
+    "calculatedAt": "2025-06-29T17:00:00Z"
+  }
+}
+```
+```
+
+### Docker Compose
+
+**docker-compose.yml**
+```yaml
+version: '3.8'
+services:
+  api:
+    build: ./apps/api
+    ports:
+      - "5000:5000"
+    environment:
+      - ConnectionStrings__DefaultConnection=Host=db;Database=quantumneuro;Username=postgres;Password=secret
+      - ConnectionStrings__Redis=redis:6379
+      - TopologyService__BaseUrl=http://topology:8000
+    depends_on:
+      - db
+      - redis
+  topology:
+    build: ./apps/topology-service
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=quantumneuro
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=secret
+    volumes:
+      - db-data:/var/lib/postgresql/data
+  redis:
+    image: redis:7
+    volumes:
+      - redis-data:/data
+volumes:
+  db-data:
+  redis-data:
+
