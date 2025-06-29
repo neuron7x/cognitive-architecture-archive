@@ -1,0 +1,1076 @@
+```yaml
+```yaml
+version: '3.8'
+
+services:
+  completebrain:
+    image: neuroarch/completebrain:3.2.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - PYTHON_VERSION=3.11
+        - CUDA_VERSION=12.2
+    ports:
+      - "8050:8050"
+    environment:
+      - AMYGDALAX_CONFIG=/app/completebrain/config/config.yaml
+      - PYTHONUNBUFFERED=1
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./cache:/app/cache
+      - ./outputs:/app/outputs
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 32G
+        reservations:
+          cpus: '4'
+          memory: 16G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8050/_health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - amygdalax-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  redis:
+    image: redis:7.2
+    command: redis-server --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - amygdalax-net
+
+networks:
+  amygdalax-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  redis-data:
+  cache:
+  outputs:
+  data:
+```
+```
+
+```dockerfile
+```dockerfile
+FROM nvidia/cuda:12.2.0-base-ubuntu22.04
+
+ARG PYTHON_VERSION=3.11
+ARG CUDA_VERSION=12.2
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python${PYTHON_VERSION} \
+    python${PYTHON_VERSION}-dev \
+    python3-pip \
+    curl \
+    libopenmpi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python${PYTHON_VERSION} /usr/bin/python
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN pip install .
+
+RUN mkdir -p /app/cache /app/outputs /app/data
+
+EXPOSE 8050
+ENV PYTHONUNBUFFERED=1
+ENV AMYGDALAX_CONFIG=/app/completebrain/config/config.yaml
+ENV LD_LIBRARY_PATH=/usr/local/cuda-${CUDA_VERSION}/lib64:$LD_LIBRARY_PATH
+
+COPY healthcheck.py .
+HEALTHCHECK CMD python healthcheck.py
+
+CMD ["python", "main.py"]
+```
+```
+
+```python
+```python
+import pickle
+import zstd
+import numpy as np
+from scipy.sparse import load_npz
+from pathlib import Path
+from typing import Dict, Optional
+from redis import Redis
+from completebrain.utils import Logger, Config
+from completebrain.domain.entities import GlialDynamics, Connectivity
+from completebrain.domain.interfaces import ILogger, IConnectivityRepository
+from completebrain.domain.exceptions import DataValidationException
+from uuid import uuid4
+import hashlib
+
+class DataLoader:
+    def __init__(self, config: Config, logger: ILogger, redis_client: Redis):
+        self.config = config
+        self.logger = logger
+        self.redis_client = redis_client
+        self.data_dir = Path(self.config.data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+
+    def _validate_file_hash(self, file_path: Path, expected_hash: Optional[str], correlation_id: str) -> None:
+        if expected_hash:
+            with open(file_path, 'rb') as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+                if file_hash != expected_hash:
+                    self.logger.error(f"Hash mismatch for {file_path}: expected {expected_hash}, got {file_hash}", correlation_id)
+                    raise DataValidationException(f"Hash mismatch for {file_path}")
+
+    def load_spikes(self, filename: str, correlation_id: str, expected_hash: Optional[str] = None) -> Dict[str, np.ndarray]:
+        try:
+            cache_key = f"spikes:{filename}"
+            cached = self.redis_client.get(cache_key)
+            if cached:
+                self.logger.info(f"Retrieved spikes from Redis cache: {filename}", correlation_id)
+                return pickle.loads(cached)
+
+            file_path = self.data_dir / filename
+            if not file_path.exists():
+                self.logger.error(f"Spike file not found: {file_path}", correlation_id)
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            self._validate_file_hash(file_path, expected_hash, correlation_id)
+            with open(file_path, 'rb') as f:
+                compressed = f.read()
+                data = pickle.loads(zstd.decompress(compressed))
+                if not isinstance(data, dict) or not all(isinstance(v, np.ndarray) for v in data.values()):
+                    self.logger.error(f"Invalid spike data format in {file_path}", correlation_id)
+                    raise DataValidationException(f"Invalid spike data format in {file_path}")
+                self.redis_client.setex(cache_key, 7200, pickle.dumps(data))
+                self.logger.info(f"Loaded and cached spikes from disk: {file_path}", correlation_id)
+                return data
+        except Exception as e:
+            self.logger.error(f"Failed to load spikes: {str(e)}", correlation_id)
+            raise
+
+    def load_chemicals(self, filename: str, correlation_id: str, expected_hash: Optional[str] = None) -> GlialDynamics:
+        try:
+            cache_key = f"chemicals:{filename}"
+            cached = self.redis_client.get(cache_key)
+            if cached:
+                self.logger.info(f"Retrieved chemicals from Redis cache: {filename}", correlation_id)
+                return pickle.loads(cached)
+
+            file_path = self.data_dir / filename
+            if not file_path.exists():
+                self.logger.error(f"Chemical file not found: {file_path}", correlation_id)
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            self._validate_file_hash(file_path, expected_hash, correlation_id)
+            with open(file_path, 'rb') as f:
+                compressed = f.read()
+                data_dict = pickle.loads(zstd.decompress(compressed))
+                data = GlialDynamics(**data_dict)
+                data.validate(self.logger, correlation_id)
+                self.redis_client.setex(cache_key, 7200, pickle.dumps(data))
+                self.logger.info(f"Loaded and cached chemicals from disk: {file_path}", correlation_id)
+                return data
+        except Exception as e:
+            self.logger.error(f"Failed to load chemicals: {str(e)}", correlation_id)
+            raise
+
+    def load_connectivity(self, filename: str, correlation_id: str, expected_hash: Optional[str] = None) -> Connectivity:
+        try:
+            cache_key = f"connectivity:{filename}"
+            cached = self.redis_client.get(cache_key)
+            if cached:
+                self.logger.info(f"Retrieved connectivity from Redis cache: {filename}", correlation_id)
+                return pickle.loads(cached)
+
+            file_path = self.data_dir / filename
+            if not file_path.exists():
+                self.logger.error(f"Connectivity file not found: {file_path}", correlation_id)
+                raise FileNotFoundError(f"File not found: {file_path}")
+
+            self._validate_file_hash(file_path, expected_hash, correlation_id)
+            matrix = load_npz(file_path)
+            if matrix.shape[0] != matrix.shape[1] or matrix.shape[0] != self.config.n_neurons:
+                self.logger.error(f"Invalid connectivity matrix shape in {file_path}", correlation_id)
+                raise DataValidationException(f"Invalid connectivity matrix shape in {file_path}")
+            connectivity = Connectivity(matrix=matrix, weights=np.array([]))
+            connectivity.validate(self.logger, correlation_id)
+            self.redis_client.setex(cache_key, 7200, pickle.dumps(connectivity))
+            self.logger.info(f"Loaded and cached connectivity from disk: {file_path}", correlation_id)
+            return connectivity
+        except Exception as e:
+            self.logger.error(f"Failed to load connectivity: {str(e)}", correlation_id)
+            raise
+
+def main():
+    correlation_id = str(uuid4())
+    config = Config("/app/completebrain/config/config.yaml")
+    logger = Logger("DataLoader")
+    redis_client = Redis(
+        host=config.redis["host"],
+        port=config.redis["port"],
+        db=config.redis["db"],
+        decode_responses=False,
+        socket_timeout=5,
+        socket_connect_timeout=5
+    )
+
+    loader = DataLoader(config, logger, redis_client)
+    
+    try:
+        # Expected hashes (replace with actual SHA256 hashes of your data files)
+        spikes = loader.load_spikes("spikes.pkl.zst", correlation_id, expected_hash=None)
+        chemicals = loader.load_chemicals("chemicals.pkl.zst", correlation_id, expected_hash=None)
+        connectivity = loader.load_connectivity("connectivity.npz", correlation_id, expected_hash=None)
+        
+        logger.info(
+            f"Successfully loaded data: {len(spikes)} spike sets, "
+            f"{len(chemicals.t)} chemical time points, "
+            f"{connectivity.matrix.shape} connectivity matrix",
+            correlation_id
+        )
+    except Exception as e:
+        logger.error(f"Data loading failed: {str(e)}", correlation_id)
+        raise
+    finally:
+        redis_client.close()
+
+if __name__ == "__main__":
+    main()
+```
+```
+
+```python
+```python
+import pickle
+import zstd
+from pathlib import Path
+from typing import Dict
+from redis import Redis
+from scipy.sparse import save_npz
+from completebrain.utils import Logger, Config
+from completebrain.domain.entities import GlialDynamics, Connectivity
+from completebrain.domain.interfaces import ILogger
+from completebrain.domain.exceptions import DataValidationException
+from uuid import uuid4
+import hashlib
+
+class DataSaver:
+    def __init__(self, config: Config, logger: ILogger, redis_client: Redis):
+        self.config = config
+        self.logger = logger
+        self.redis_client = redis_client
+        self.output_dir = Path(self.config.output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _compute_file_hash(self, file_path: Path) -> str:
+        with open(file_path, 'rb') as f:
+            return hashlib.sha256(f.read()).hexdigest()
+
+    def save_spikes(self, spikes: Dict[str, np.ndarray], filename: str, correlation_id: str) -> str:
+        try:
+            if not isinstance(spikes, dict) or not all(isinstance(v, np.ndarray) for v in spikes.values()):
+                self.logger.error(f"Invalid spike data format for {filename}", correlation_id)
+                raise DataValidationException(f"Invalid spike data format for {filename}")
+            
+            compressed = zstd.compress(pickle.dumps(spikes), self.config.compression_level)
+            file_path = self.output_dir / filename
+            with open(file_path, 'wb') as f:
+                f.write(compressed)
+            file_hash = self._compute_file_hash(file_path)
+            self.redis_client.setex(f"spikes:{filename}", 7200, compressed)
+            self.logger.info(f"Saved spikes to {file_path} with hash {file_hash}", correlation_id)
+            return file_hash
+        except Exception as e:
+            self.logger.error(f"Failed to save spikes: {str(e)}", correlation_id)
+            raise
+
+    def save_chemicals(self, chemicals: GlialDynamics, filename: str, correlation_id: str) -> str:
+        try:
+            chemicals.validate(self.logger, correlation_id)
+            compressed = zstd.compress(pickle.dumps(chemicals.__dict__), self.config.compression_level)
+            file_path = self.output_dir / filename
+            with open(file_path, 'wb') as f:
+                f.write(compressed)
+            file_hash = self._compute_file_hash(file_path)
+            self.redis_client.setex(f"chemicals:{filename}", 7200, compressed)
+            self.logger.info(f"Saved chemicals to {file_path} with hash {file_hash}", correlation_id)
+            return file_hash
+        except Exception as e:
+            self.logger.error(f"Failed to save chemicals: {str(e)}", correlation_id)
+            raise
+
+    def save_connectivity(self, connectivity: Connectivity, filename: str, correlation_id: str) -> str:
+        try:
+            connectivity.validate(self.logger, correlation_id)
+            file_path = self.output_dir / filename
+            save_npz(file_path, connectivity.matrix)
+            file_hash = self._compute_file_hash(file_path)
+            self.redis_client.setex(f"connectivity:{filename}", 7200, pickle.dumps(connectivity))
+            self.logger.info(f"Saved connectivity to {file_path} with hash {file_hash}", correlation_id)
+            return file_hash
+        except Exception as e:
+            self.logger.error(f"Failed to save connectivity: {str(e)}", correlation_id)
+            raise
+
+def main():
+    correlation_id = str(uuid4())
+    config = Config("/app/completebrain/config/config.yaml")
+    logger = Logger("DataSaver")
+    redis_client = Redis(
+        host=config.redis["host"],
+        port=config.redis["port"],
+        db=config.redis["db"],
+        decode_responses=False,
+        socket_timeout=5,
+        socket_connect_timeout=5
+    )
+
+    saver = DataSaver(config, logger, redis_client)
+    
+    try:
+        import numpy as np
+        from scipy.sparse import csr_matrix
+        spikes = {t: np.random.rand(1000) for t in config.neuron_types}
+        chemicals = GlialDynamics(
+            t=np.linspace(0, config.sim_time/1000, 100),
+            glu=np.random.rand(100),
+            ampa=np.random.rand(100),
+            ca=np.random.rand(100),
+            ip3=np.random.rand(100)
+        )
+        connectivity = Connectivity(matrix=csr_matrix((1000, 1000)), weights=np.array([]))
+        
+        spikes_hash = saver.save_spikes(spikes, "spikes.pkl.zst", correlation_id)
+        chemicals_hash = saver.save_chemicals(chemicals, "chemicals.pkl.zst", correlation_id)
+        connectivity_hash = saver.save_connectivity(connectivity, "connectivity.npz", correlation_id)
+        
+        logger.info(
+            f"Data saved successfully: spikes_hash={spikes_hash}, "
+            f"chemicals_hash={chemicals_hash}, connectivity_hash={connectivity_hash}",
+            correlation_id
+        )
+    except Exception as e:
+        logger.error(f"Data saving failed: {str(e)}", correlation_id)
+        raise
+    finally:
+        redis_client.close()
+
+if __name__ == "__main__":
+    main()
+```
+```
+
+```python
+```python
+import threading
+from uuid import uuid4
+from redis import Redis
+from completebrain.application.commands import SimulateAmygdalaCommand
+from completebrain.application.handlers import SimulateAmygdalaHandler
+from completebrain.domain.services import SimulationService
+from completebrain.domain.exceptions import SimulationException
+from completebrain.infrastructure.repositories import NeuronRepository, GliaRepository, ConnectivityRepository
+from completebrain.infrastructure.visualization import VisualizationService
+from completebrain.infrastructure.telemetry import TelemetryService
+from completebrain.infrastructure.dashboard import DashboardService
+from completebrain.utils import Logger, Config, DIContainer
+
+def main():
+    correlation_id = str(uuid4())
+    logger = Logger("CompleteBrain")
+    
+    try:
+        container = DIContainer()
+        container.register(Logger, logger)
+
+        config_path = "/app/completebrain/config/config.yaml"
+        config = Config(config_path)
+        container.register(Config, config)
+
+        redis_client = Redis(
+            host=config.redis["host"],
+            port=config.redis["port"],
+            db=config.redis["db"],
+            decode_responses=False,
+            socket_timeout=5,
+            socket_connect_timeout=5
+        )
+        container.register(Redis, redis_client)
+
+        container.register(NeuronRepository, NeuronRepository(container.resolve(Logger)))
+        container.register(GliaRepository, GliaRepository(container.resolve(Config), container.resolve(Logger)))
+        container.register(ConnectivityRepository, ConnectivityRepository(
+            container.resolve(Config), container.resolve(Logger), container.resolve(Redis)
+        ))
+        container.register(TelemetryService, TelemetryService(container.resolve(Logger)))
+        container.register(VisualizationService, VisualizationService(
+            container.resolve(Config), container.resolve(Logger), container.resolve(TelemetryService)
+        ))
+        container.register(SimulationService, SimulationService(
+            container.resolve(NeuronRepository),
+            container.resolve(GliaRepository),
+            container.resolve(ConnectivityRepository),
+            container.resolve(TelemetryService),
+            container.resolve(Logger),
+            container.resolve(Config)
+        ))
+        container.register(DashboardService, DashboardService(
+            container.resolve(Config), container.resolve(Logger), container.resolve(TelemetryService)
+        ))
+
+        dashboard = container.resolve(DashboardService)
+        dashboard.setup_layout()
+        dashboard.setup_callbacks()
+        dashboard_thread = threading.Thread(target=dashboard.run, args=(correlation_id,), daemon=True)
+        dashboard_thread.start()
+
+        handler = SimulateAmygdalaHandler(
+            container.resolve(SimulationService),
+            container.resolve(VisualizationService),
+            container.resolve(TelemetryService)
+        )
+        command = SimulateAmygdalaCommand(correlation_id=correlation_id, config_path=config_path)
+        result = handler.handle(command)
+        
+        if not result.success:
+            logger.error(f"Simulation failed: {result.errors}", correlation_id)
+            raise SimulationException(f"Simulation failed: {result.errors}")
+        
+        logger.info("Simulation completed successfully", correlation_id)
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}", correlation_id)
+        raise
+    finally:
+        redis_client.close()
+
+if __name__ == "__main__":
+    main()
+```
+```
+
+```yaml
+```yaml
+n_neurons: 1000000
+exc_ratio: 0.658
+inh_ratio: 0.292
+mod_ratio: 0.050
+sim_time: 4000.0
+dt: 0.005
+stdp_alpha: 0.0045
+stdp_tau: 14.5
+k1: 0.1295
+rho: 0.106
+cache_dir: /app/cache
+data_dir: /app/data
+output_dir: /app/outputs
+max_workers: 8
+batch_size: 5000
+compression_level: 14
+tolerance: 1e-15
+framework_name: CompleteBrain
+framework_version: 3.2.0
+neuron_types:
+  - excitatory
+  - inhibitory
+  - modulatory
+conn_matrix:
+  - [0.0, 0.9020, 0.7120]
+  - [0.9020, 0.0, 0.8120]
+  - [0.7120, 0.8120, 0.0]
+visualization:
+  dpi: 1200
+  figsize: [30, 22]
+  node_color: "#FF3D3D"
+  edge_color: "#00B7EB"
+  scatter_alpha: 0.15
+  line_width: 0.4
+  font_size: 16
+  palette:
+    - "#FF3D3D"
+    - "#00B7EB"
+    - "#1DE9B6"
+    - "#FFCA28"
+optimization:
+  use_gpu: true
+  memory_threshold_mb: 262144
+  cuda_enabled: true
+  max_batch_size: 10000
+dashboard:
+  port: 8050
+  update_interval_s: 0.05
+  max_data_points: 5000
+  theme: dark
+  layout:
+    sidebar_width: "25%"
+    plot_height: 500
+    font_family: "Helvetica, sans-serif"
+    primary_color: "#FF3D3D"
+    secondary_color: "#00B7EB"
+    background_color: "#1E1E1E"
+    text_color: "#FFFFFF"
+    accent_color: "#1DE9B6"
+redis:
+  host: redis
+  port: 6379
+  db: 0
+  max_connections: 100
+  socket_timeout: 5
+  retry_count: 3
+  retry_backoff_ms: 500
+security:
+  enable_auth: false
+  jwt_secret: "replace-with-secure-key"
+  allowed_origins:
+    - "http://localhost:8050"
+    - "https://dashboard.amygdalax.org"
+telemetry:
+  enabled: true
+  endpoint: "http://localhost:9090"
+  metrics_interval_s: 10
+```
+```
+
+```python
+```python
+import requests
+import sys
+from completebrain.utils import Logger
+from uuid import uuid4
+
+correlation_id = str(uuid4())
+logger = Logger("HealthCheck")
+
+try:
+    response = requests.get("http://localhost:8050/_health", timeout=3)
+    if response.status_code == 200 and response.json().get("status") == "healthy":
+        logger.info("Health check passed", correlation_id)
+        sys.exit(0)
+    else:
+        logger.error(f"Health check failed: status={response.status_code}", correlation_id)
+        sys.exit(1)
+except Exception as e:
+    logger.error(f"Health check failed: {str(e)}", correlation_id)
+    sys.exit(1)
+```
+```
+
+
+```
+torch==2.3.0+cu121
+nest-simulator==3.7
+bluepy==2.4
+numpy==1.26.4
+scipy==1.13.0
+matplotlib==3.9.1
+seaborn==0.14.0
+networkx==3.3
+pyyaml==6.0.2
+prometheus-client==0.20.0
+zstd==0.22.0
+numba==0.59.0
+psutil==5.9.8
+dash==2.17.0
+plotly==5.22.0
+redis==5.0.0
+vtk==9.3.0
+pytest==8.2.2
+pytest-cov==4.1.0
+mkdocs==1.5.3
+mkdocs-material==9.5.0
+requests==2.32.3
+pybreaker==1.0.2
+flask-talisman==1.0.0
+dash-auth==2.0.0
+```
+
+
+```python
+```python
+import yaml
+import logging
+import zstd
+from pathlib import Path
+from typing import Any, Dict, Type, TypeVar
+from dataclasses import dataclass
+from scipy.sparse import load_npz, save_npz
+from completebrain.domain.exceptions import ConfigurationException
+
+T = TypeVar('T')
+
+class Logger:
+    def __init__(self, name: str):
+        self.logger = logging.getLogger(name)
+        self.logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - [%(correlation_id)s] - %(message)s'
+        )
+        handler.setFormatter(formatter)
+        self.logger.addHandler(handler)
+
+    def info(self, message: str, correlation_id: str, **kwargs) -> None:
+        self.logger.info(message, extra={'correlation_id': correlation_id, **kwargs})
+
+    def error(self, message: str, correlation_id: str, **kwargs) -> None:
+        self.logger.error(message, extra={'correlation_id': correlation_id, **kwargs})
+
+    def warning(self, message: str, correlation_id: str, **kwargs) -> None:
+        self.logger.warning(message, extra={'correlation_id': correlation_id, **kwargs})
+
+@dataclass
+class Config:
+    config_path: str = "/app/completebrain/config/config.yaml"
+
+    def __post_init__(self):
+        self.load()
+        self.validate()
+
+    def load(self) -> Dict:
+        try:
+            with open(self.config_path, 'r') as f:
+                self._config = yaml.safe_load(f)
+            if not self._config:
+                self._config = self._default_config()
+            return self._config
+        except FileNotFoundError:
+            self._config = self._default_config()
+            return self._config
+
+    def _default_config(self) -> Dict:
+        return {
+            'n_neurons': 1000000,
+            'exc_ratio': 0.658,
+            'inh_ratio': 0.292,
+            'mod_ratio': 0.050,
+            'sim_time': 4000.0,
+            'dt': 0.005,
+            'stdp_alpha': 0.0045,
+            'stdp_tau': 14.5,
+            'k1': 0.1295,
+            'rho': 0.106,
+            'cache_dir': '/app/cache',
+            'data_dir': '/app/data',
+            'output_dir': '/app/outputs',
+            'max_workers': 8,
+            'batch_size': 5000,
+            'compression_level': 14,
+            'tolerance': 1e-15,
+            'framework_name': 'CompleteBrain',
+            'framework_version': '3.2.0',
+            'neuron_types': ['excitatory', 'inhibitory', 'modulatory'],
+            'conn_matrix': [[0.0, 0.9020, 0.7120], [0.9020, 0.0, 0.8120], [0.7120, 0.8120, 0.0]],
+            'visualization': {
+                'dpi': 1200,
+                'figsize': [30, 22],
+                'node_color': '#FF3D3D',
+                'edge_color': '#00B7EB',
+                'scatter_alpha': 0.15,
+                'line_width': 0.4,
+                'font_size': 16,
+                'palette': ['#FF3D3D', '#00B7EB', '#1DE9B6', '#FFCA28']
+            },
+            'optimization': {
+                'use_gpu': True,
+                'memory_threshold_mb': 262144,
+                'cuda_enabled': True,
+                'max_batch_size': 10000
+            },
+            'dashboard': {
+                'port': 8050,
+                'update_interval_s': 0.05,
+                'max_data_points': 5000,
+                'theme': 'dark',
+                'layout': {
+                    'sidebar_width': '25%',
+                    'plot_height': 500,
+                    'font_family': 'Helvetica, sans-serif',
+                    'primary_color': '#FF3D3D',
+                    'secondary_color': '#00B7EB',
+                    'background_color': '#1E1E1E',
+                    'text_color': '#FFFFFF',
+                    'accent_color': '#1DE9B6'
+                }
+            },
+            'redis': {
+                'host': 'redis',
+                'port': 6379,
+                'db': 0,
+                'max_connections': 100,
+                'socket_timeout': 5,
+                'retry_count': 3,
+                'retry_backoff_ms': 500
+            },
+            'security': {
+                'enable_auth': False,
+                'jwt_secret': 'replace-with-secure-key',
+                'allowed_origins': ['http://localhost:8050', 'https://dashboard.amygdalax.org']
+            },
+            'telemetry': {
+                'enabled': True,
+                'endpoint': 'http://localhost:9090',
+                'metrics_interval_s': 10
+            }
+        }
+
+    def validate(self) -> None:
+        try:
+            assert 1000 <= self.n_neurons <= 10000000, "Neuron count must be between 1K and 10M"
+            assert abs(self.exc_ratio + self.inh_ratio + self.mod_ratio - 1.0) < 1e-5, "Neuron ratios must sum to 1"
+            assert 100 <= self.sim_time <= 100000, "Simulation time must be between 100ms and 100s"
+            assert 0.001 <= self.dt <= 1.0, "Time step must be between 0.001ms and 1ms"
+            assert self.cache_dir and Path(self.cache_dir).is_dir(), f"Cache directory {self.cache_dir} must exist"
+            assert self.data_dir and Path(self.data_dir).is_dir(), f"Data directory {self.data_dir} must exist"
+            assert self.output_dir and Path(self.output_dir).is_dir(), f"Output directory {self.output_dir} must exist"
+            assert self.redis["retry_count"] >= 0, "Redis retry count must be non-negative"
+            assert self.redis["socket_timeout"] > 0, "Redis socket timeout must be positive"
+            assert self.compression_level in range(1, 23), "Compression level must be between 1 and 22"
+        except AssertionError as e:
+            raise ConfigurationException(str(e))
+
+    def update(self, config_dict: Dict) -> None:
+        self._config.update(config_dict)
+        self.validate()
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self._config:
+            return self._config[name]
+        raise AttributeError(f"No such config attribute: {name}")
+
+class DIContainer:
+    def __init__(self):
+        self._registry: Dict[Type, Any] = {}
+
+    def register(self, interface: Type[T], implementation: T) -> None:
+        self._registry[interface] = implementation
+
+    def resolve(self, interface: Type[T]) -> T:
+        if interface not in self._registry:
+            raise ValueError(f"No implementation registered for {interface}")
+        return self._registry[interface]
+
+def compress_data(data: Any) -> bytes:
+    return zstd.compress(pickle.dumps(data), 14)
+
+def decompress_data(compressed: bytes) -> Any:
+    return pickle.loads(zstd.decompress(compressed))
+
+def validate_dashboard_input(sim_time: float, n_neurons: int, theme: str) -> None:
+    if not (100 <= sim_time <= 100000):
+        raise ValueError("Simulation time must be between 100ms and 100s")
+    if not (1000 <= n_neurons <= 10000000):
+        raise ValueError("Neuron count must be between 1K and 10M")
+    if theme not in ['dark', 'light']:
+        raise ValueError("Theme must be 'dark' or 'light'")
+```
+```
+
+```yaml
+```yaml
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.2
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 3s --health-retries 5
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    - name: Run tests
+      env:
+        AMYGDALAX_CONFIG: completebrain/config/config.yaml
+      run: |
+        pytest tests/ --cov=completebrain --cov-report=xml --cov-report=html
+    - name: Upload coverage report
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
+        fail_ci_if_error: true
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install linters
+      run: |
+        pip install flake8 mypy black isort
+    - name: Run flake8
+      run: flake8 .
+    - name: Run mypy
+      run: mypy .
+    - name: Run black
+      run: black --check .
+    - name: Run isort
+      run: isort --check-only --diff .
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install mkdocs mkdocs-material
+    - name: Build documentation
+      run: mkdocs build
+    - name: Deploy documentation
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./site
+  build-docker:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile
+        push: true
+        tags: neuroarch/completebrain:3.2.0
+        platforms: linux/amd64
+        cache-from: type=registry,ref=neuroarch/completebrain:cache
+        cache-to: type=inline
+```
+```
+
+```python
+```python
+from dataclasses import dataclass
+from typing import List, Optional
+import numpy as np
+from scipy.sparse import csr_matrix
+from completebrain.utils import Logger
+from completebrain.domain.exceptions import DataValidationException
+
+@dataclass
+class NeuronGroup:
+    type: str
+    count: int
+    spike_times: np.ndarray
+    membrane_potential: np.ndarray
+    synaptic_weights: np.ndarray
+
+    def validate(self, logger: Logger, correlation_id: str) -> None:
+        if self.type not in ['excitatory', 'inhibitory', 'modulatory']:
+            logger.error(f"Invalid neuron type: {self.type}", correlation_id)
+            raise DataValidationException(f"Invalid neuron type: {self.type}")
+        if self.count <= 0:
+            logger.error(f"Invalid neuron count: {self.count}", correlation_id)
+            raise DataValidationException(f"Invalid neuron count: {self.count}")
+        if not isinstance(self.spike_times, np.ndarray) or not isinstance(self.membrane_potential, np.ndarray):
+            logger.error(f"Invalid data types for neuron group {self.type}", correlation_id)
+            raise DataValidationException(f"Invalid data types for neuron group {self.type}")
+
+@dataclass
+class GlialDynamics:
+    t: np.ndarray
+    glu: np.ndarray
+    ampa: np.ndarray
+    ca: np.ndarray
+    ip3: np.ndarray
+
+    def validate(self, logger: Logger, correlation_id: str) -> None:
+        arrays = [self.t, self.glu, self.ampa, self.ca, self.ip3]
+        if not all(isinstance(arr, np.ndarray) for arr in arrays):
+            logger.error("Invalid data types for glial dynamics", correlation_id)
+            raise DataValidationException("Invalid data types for glial dynamics")
+        if not all(arr.shape == self.t.shape for arr in arrays):
+            logger.error("Inconsistent array shapes in glial dynamics", correlation_id)
+            raise DataValidationException("Inconsistent array shapes in glial dynamics")
+        if np.any(self.t < 0):
+            logger.error("Negative time values in glial dynamics", correlation_id)
+            raise DataValidationException("Negative time values in glial dynamics")
+
+@dataclass
+class Connectivity:
+    matrix: csr_matrix
+    weights: np.ndarray
+
+    def validate(self, logger: Logger, correlation_id: str) -> None:
+        if not isinstance(self.matrix, csr_matrix):
+            logger.error("Invalid connectivity matrix type", correlation_id)
+            raise DataValidationException("Invalid connectivity matrix type")
+        if self.matrix.shape[0] != self.matrix.shape[1]:
+            logger.error("Non-square connectivity matrix", correlation_id)
+            raise DataValidationException("Non-square connectivity matrix")
+        if not isinstance(self.weights, np.ndarray):
+            logger.error("Invalid weights type", correlation_id)
+            raise DataValidationException("Invalid weights type")
+```
+```
+
+```python
+```python
+class SimulationException(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+class DataValidationException(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+class ConfigurationException(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+```
+```
+
+```python
+```python
+import pytest
+import numpy as np
+from unittest.mock import Mock
+from redis import Redis
+from completebrain.utils import Logger, Config
+from completebrain.domain.entities import GlialDynamics, Connectivity
+from completebrain.scripts.load_data import DataLoader
+from completebrain.domain.exceptions import DataValidationException
+from pathlib import Path
+import pickle
+import zstd
+
+@pytest.fixture
+def config():
+    return Config("tests/test_config.yaml")
+
+@pytest.fixture
+def logger():
+    return Mock(spec=Logger)
+
+@pytest.fixture
+def redis_client():
+    return Mock(spec=Redis)
+
+@pytest.fixture
+def data_loader(config, logger, redis_client):
+    return DataLoader(config, logger, redis_client)
+
+def test_load_spikes_success(data_loader, tmp_path, logger, redis_client):
+    correlation_id = "test-123"
+    spikes = {"excitatory": np.array([1.0, 2.0]), "inhibitory": np.array([3.0, 4.0])}
+    file_path = tmp_path / "spikes.pkl.zst"
+    with open(file_path, 'wb') as f:
+        f.write(zstd.compress(pickle.dumps(spikes)))
+
+    redis_client.get.return_value = None
+    result = data_loader.load_spikes("spikes.pkl.zst", correlation_id)
+    
+    assert result == spikes
+    redis_client.setex.assert_called_once()
+    logger.info.assert_called()
+
+def test_load_spikes_file_not_found(data_loader, tmp_path, logger):
+    correlation_id = "test-123"
+    with pytest.raises(FileNotFoundError):
+        data_loader.load_spikes("nonexistent.pkl.zst", correlation_id)
+    logger.error.assert_called()
+
+def test_load_chemicals_success(data_loader, tmp_path, logger, redis_client):
+    correlation_id = "test-123"
+    chemicals = GlialDynamics(
+        t=np.array([0.0, 1.0]),
+        glu=np.array([0.1, 0.2]),
+        ampa=np.array([0.3, 0.4]),
+        ca=np.array([0.5, 0.6]),
+        ip3=np.array([0.7, 0.8])
+    )
+    file_path = tmp_path / "chemicals.pkl.zst"
+    with open(file_path, 'wb') as f:
+        f.write(zstd.compress(pickle.dumps(chemicals.__dict__)))
+
+    redis_client.get.return_value = None
+    result = data_loader.load_chemicals("chemicals.pkl.zst", correlation_id)
+    
+    assert isinstance(result, GlialDynamics)
+    redis_client.setex.assert_called_once()
+    logger.info.assert_called()
+
+def test_load_connectivity_success(data_loader, tmp_path, logger, redis_client):
+    correlation_id = "test-123"
+    from scipy.sparse import csr_matrix
+    matrix = csr_matrix((1000, 1000))
+    connectivity = Connectivity(matrix=matrix, weights=np.array([]))
+    file_path = tmp_path / "connectivity.npz"
+    from scipy.sparse import save_npz
+    save_npz(file_path, matrix)
+
+    redis_client.get.return_value = None
+    result = data_loader.load_connectivity("connectivity.npz", correlation_id)
+    
+    assert isinstance(result, Connectivity)
+    redis_client.setex.assert_called_once()
+    logger.info.assert_called()
+
+def test_load_spikes_invalid_format(data_loader, tmp_path, logger):
+    correlation_id = "test-123"
+    file_path = tmp_path / "spikes.pkl.zst"
+    with open(file_path, 'wb') as f:
+        f.write(zstd.compress(pickle.dumps("invalid_data")))
+    
+    with pytest.raises(DataValidationException):
+        data_loader.load_spikes("spikes.pkl.zst", correlation_id)
+    logger.error.assert_called()
+```
+```
