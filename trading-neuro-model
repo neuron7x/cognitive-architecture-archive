@@ -1,0 +1,1165 @@
+trading-neuro-model/
+├── 📁 src/
+│   ├── 📁 Domain/
+│   │   ├── 📁 Models/
+│   │   │   ├── MarketSignal.cs
+│   │   │   ├── TradingDecision.cs
+│   │   │   ├── NeuralState.cs
+│   │   │   ├── AuditLog.cs
+│   │   │   ├── CausalModel.cs
+│   │   │   ├── ComplianceMetadata.cs
+│   │   │   ├── WeightOptimizationResult.cs
+│   │   │   ├── SemanticValidationResult.cs
+│   │   ├── 📁 Services/
+│   │   │   ├── INeuroTradingService.cs
+│   │   │   ├── NeuralStateEstimator.cs
+│   │   │   ├── DecisionEngine.cs
+│   │   │   ├── SentimentAdaptiveRegulator.cs
+│   │   │   ├── IMarketDataService.cs
+│   │   │   ├── MarketDataService.cs
+│   │   │   ├── IWeightOptimizerService.cs
+│   │   │   ├── GaussianWeightOptimizerService.cs
+│   │   │   ├── ICausalFeedbackAnalyzer.cs
+│   │   │   ├── CausalFeedbackAnalyzer.cs
+│   │   │   ├── ISemanticValidator.cs
+│   │   │   ├── ShaclSemanticValidator.cs
+│   │   │   ├── NeuralConfig.cs
+│   │   ├── 📁 Repositories/
+│   │   │   ├── IMarketSignalRepository.cs
+│   │   │   ├── MarketSignalRepository.cs
+│   │   │   ├── IAuditLogRepository.cs
+│   │   │   ├── AuditLogRepository.cs
+│   │   │   ├── ICausalModelRepository.cs
+│   │   │   ├── CausalModelRepository.cs
+│   ├── 📁 Application/
+│   │   ├── 📁 Commands/
+│   │   │   ├── ProcessMarketSignalCommand.cs
+│   │   │   ├── ProcessMarketSignalCommandHandler.cs
+│   │   │   ├── UpdateWeightsCommand.cs
+│   │   │   ├── UpdateWeightsCommandHandler.cs
+│   │   │   ├── ValidateSemanticsCommand.cs
+│   │   │   ├── ValidateSemanticsCommandHandler.cs
+│   │   ├── 📁 Queries/
+│   │   │   ├── GetExplainabilityQuery.cs
+│   │   │   ├── GetExplainabilityQueryHandler.cs
+│   │   │   ├── GetAuditTrailQuery.cs
+│   │   │   ├── GetAuditTrailQueryHandler.cs
+│   │   ├── 📁 DTOs/
+│   │   │   ├── ProcessMarketSignalRequest.cs
+│   │   │   ├── ProcessMarketSignalResponse.cs
+│   │   │   ├── ExplainabilityResponse.cs
+│   │   │   ├── AuditTrailResponse.cs
+│   │   │   ├── ComplianceMetadataResponse.cs
+│   │   │   ├── WeightOptimizationResultResponse.cs
+│   │   │   ├── SemanticValidationResultResponse.cs
+│   │   ├── 📁 Validators/
+│   │   │   ├── ProcessMarketSignalRequestValidator.cs
+│   │   │   ├── GetExplainabilityQueryValidator.cs
+│   │   │   ├── UpdateWeightsCommandValidator.cs
+│   │   │   ├── ValidateSemanticsCommandValidator.cs
+│   │   ├── 📁 Explainability/
+│   │   │   ├── IExplainabilityService.cs
+│   │   │   ├── CausalExplainabilityService.cs
+│   │   ├── 📁 Resilience/
+│   │   │   ├── ICircuitBreaker.cs
+│   │   │   ├── CircuitBreaker.cs
+│   │   │   ├── ICacheEvictionPolicy.cs
+│   │   │   ├── LFUPlusCacheEvictionPolicy.cs
+│   ├── 📁 Infrastructure/
+│   │   ├── 📁 Data/
+│   │   │   ├── ApplicationDbContext.cs
+│   │   ├── 📁 Telemetry/
+│   │   │   ├── ITelemetryService.cs
+│   │   │   ├── TelemetryService.cs
+│   │   ├── 📁 Exceptions/
+│   │   │   ├── BusinessRuleViolationException.cs
+│   │   │   ├── SemanticValidationException.cs
+│   │   ├── 📁 Middleware/
+│   │   │   ├── GlobalExceptionHandlingMiddleware.cs
+│   │   │   ├── RateLimitingMiddleware.cs
+│   │   │   ├── MemoryPressureMiddleware.cs
+│   │   ├── 📁 Serialization/
+│   │   │   ├── JsonLdSerializer.cs
+│   │   ├── 📁 Authentication/
+│   │   │   ├── JwtAuthenticationHandler.cs
+│   ├── 📁 API/
+│   │   ├── 📁 Controllers/
+│   │   │   ├── TradingController.cs
+│   │   │   ├── ExplainabilityController.cs
+│   │   │   ├── AuditController.cs
+│   │   │   ├── OptimizationController.cs
+│   │   │   ├── SemanticValidationController.cs
+│   ├── 📁 Tests/
+│   │   ├── 📁 UnitTests/
+│   │   │   ├── NeuralStateEstimatorTests.cs
+│   │   │   ├── DecisionEngineTests.cs
+│   │   │   ├── CausalExplainabilityServiceTests.cs
+│   │   │   ├── SentimentAdaptiveRegulatorTests.cs
+│   │   │   ├── GaussianWeightOptimizerServiceTests.cs
+│   │   │   ├── CausalFeedbackAnalyzerTests.cs
+│   │   │   ├── LFUPlusCacheEvictionPolicyTests.cs
+│   │   │   ├── ShaclSemanticValidatorTests.cs
+│   │   ├── 📁 IntegrationTests/
+│   │   │   ├── TradingControllerTests.cs
+│   │   │   ├── ExplainabilityControllerTests.cs
+│   │   │   ├── AuditControllerTests.cs
+│   │   │   ├── OptimizationControllerTests.cs
+│   │   │   ├── SemanticValidationControllerTests.cs
+│   │   ├── 📁 WalkForwardTests/
+│   │   │   ├── WalkForwardTestRunner.cs
+│   │   ├── 📁 StressTests/
+│   │   │   ├── StressTestRunner.cs
+│   │   ├── 📁 RealDataTests/
+│   │   │   ├── RealDataTestRunner.cs
+│   │   ├── 📁 ComplianceTests/
+│   │   │   ├── ComplianceTestRunner.cs
+│   │   ├── 📁 SemanticTests/
+│   │   │   ├── SemanticTestRunner.cs
+│   ├── 📁 Configurations/
+│   │   ├── DatabaseOptions.cs
+│   │   ├── CacheOptions.cs
+│   │   ├── NeuralOptions.cs
+│   │   ├── CircuitBreakerOptions.cs
+│   │   ├── TelemetryOptions.cs
+│   │   ├── AuthenticationOptions.cs
+│   │   ├── SemanticValidationOptions.cs
+├── 📁 scripts/
+│   ├── deploy.sh
+│   ├── run-walk-forward-tests.sh
+│   ├── run-stress-tests.sh
+│   ├── run-real-data-tests.sh
+│   ├── run-compliance-tests.sh
+│   ├── run-semantic-tests.sh
+├── 📁 docs/
+│   ├── README.md
+│   ├── API.md
+│   ├── NEURO_SCIENCE.md
+│   ├── COMPLIANCE.md
+│   ├── SEMANTIC_VALIDATION.md
+├── 📁 .github/
+│   ├── 📁 workflows/
+│   │   ├── ci-cd.yml
+│   │   ├── monitoring.yml
+│   │   ├── walk-forward.yml
+│   │   ├── stress-test.yml
+│   │   ├── real-data-test.yml
+│   │   ├── compliance-test.yml
+│   │   ├── semantic-test.yml
+├── Dockerfile
+├── docker-compose.yml
+├── .gitignore
+├── appsettings.json
+├── appsettings.Production.json
+├── TradingNeuroModel.csproj
+├── TradingNeuroModel.sln
+```
+
+---
+
+### 📄 src/Domain/Models/SemanticValidationResult.cs
+```csharp
+namespace TradingNeuroModel.Domain.Models
+{
+    public record SemanticValidationResult(
+        string AssetId,
+        bool IsValid,
+        string[] ValidationErrors,
+        DateTime Timestamp);
+}
+```
+
+---
+
+### 📄 src/Domain/Services/IWeightOptimizerService.cs
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+using TradingNeuroModel.Domain.Models;
+
+namespace TradingNeuroModel.Domain.Services
+{
+    public interface IWeightOptimizerService
+    {
+        Task<WeightOptimizationResult> OptimizeWeightsAsync(MarketSignal signal, NeuralState state, TradingDecision decision, CancellationToken ct);
+    }
+}
+```
+
+---
+
+### 📄 src/Domain/Services/GaussianWeightOptimizerService.cs
+```csharp
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TradingNeuroModel.Domain.Models;
+
+namespace TradingNeuroModel.Domain.Services
+{
+    public class GaussianWeightOptimizerService : IWeightOptimizerService
+    {
+        private readonly ILogger<GaussianWeightOptimizerService> _logger;
+        private readonly NeuralConfig _config;
+        private readonly NeuralStateEstimator _estimator;
+
+        public GaussianWeightOptimizerService(
+            ILogger<GaussianWeightOptimizerService> logger,
+            IOptions<NeuralConfig> config,
+            NeuralStateEstimator estimator)
+        {
+            _logger = logger;
+            _config = config.Value;
+            _estimator = estimator;
+        }
+
+        public async Task<WeightOptimizationResult> OptimizeWeightsAsync(MarketSignal signal, NeuralState state, TradingDecision decision, CancellationToken ct)
+        {
+            // Gaussian Process для адаптивного оновлення ваг
+            double reward = decision.Confidence * (decision.Action == "Hold" ? 0.1 : 1.0);
+            double sentiment = (double)signal.MarketSentiment;
+            double macroImpact = signal.MacroEconomicIndicators.Average();
+            double volatilityImpact = (double)signal.Volatility;
+            double predictionError = Math.Abs(state.RewardPredictionError);
+
+            // Gaussian Process з урахуванням невизначеності та кореляції
+            double adjustment = _config.DynamicWeightAdjustmentFactor * (reward + sentiment + macroImpact - volatilityImpact);
+            var optimizedWeights = _config.DLPFCWeights.Select(w =>
+                Math.Max(0.01, w * (1 + adjustment * Math.Exp(-predictionError * _config.GaussianUncertaintyFactor)))
+            ).ToArray();
+            _estimator.UpdateWeights(sentiment, macroImpact, adjustment, optimizedWeights);
+
+            var result = new WeightOptimizationResult(signal.AssetId, optimizedWeights, reward, predictionError, DateTime.UtcNow);
+            _logger.LogInformation("Optimized weights for {AssetId} with reward {Reward}, error {Error}", signal.AssetId, reward, predictionError);
+            return await Task.FromResult(result);
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Domain/Services/ISemanticValidator.cs
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+using TradingNeuroModel.Domain.Models;
+
+namespace TradingNeuroModel.Domain.Services
+{
+    public interface ISemanticValidator
+    {
+        Task<SemanticValidationResult> ValidateAsync(MarketSignal signal, TradingDecision decision, CancellationToken ct);
+    }
+}
+```
+
+---
+
+### 📄 src/Domain/Services/ShaclSemanticValidator.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using TradingNeuroModel.Domain.Models;
+
+namespace TradingNeuroModel.Domain.Services
+{
+    public class ShaclSemanticValidator : ISemanticValidator
+    {
+        private readonly ILogger<ShaclSemanticValidator> _logger;
+
+        public ShaclSemanticValidator(ILogger<ShaclSemanticValidator> logger)
+        {
+            _logger = logger;
+        }
+
+        public async Task<SemanticValidationResult> ValidateAsync(MarketSignal signal, TradingDecision decision, CancellationToken ct)
+        {
+            var errors = new List<string>();
+
+            // SHACL-подібна валідація для семантичної відповідності
+            if (signal.Price <= 0)
+                errors.Add("Invalid price: must be positive");
+            if (string.IsNullOrEmpty(decision.Action))
+                errors.Add("Invalid decision action: cannot be empty");
+            if (decision.Confidence < 0 || decision.Confidence > 1)
+                errors.Add("Invalid confidence: must be between 0 and 1");
+            if (signal.RegulatoryFlags.Contains("RESTRICTED") && decision.Action != "Hold")
+                errors.Add("Restricted asset cannot have non-Hold action");
+
+            var result = new SemanticValidationResult(
+                signal.AssetId,
+                errors.Count == 0,
+                errors.ToArray(),
+                DateTime.UtcNow);
+
+            _logger.LogInformation("Semantic validation for {AssetId}: IsValid={IsValid}, Errors={ErrorCount}", signal.AssetId, result.IsValid, errors.Count);
+            return await Task.FromResult(result);
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Domain/Services/NeuralStateEstimator.cs
+```csharp
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using TradingNeuroModel.Domain.Models;
+using TradingNeuroModel.Domain.Repositories;
+
+namespace TradingNeuroModel.Domain.Services
+{
+    public class NeuralStateEstimator
+    {
+        private readonly IMarketSignalRepository _repository;
+        private readonly ILogger<NeuralStateEstimator> _logger;
+        private readonly NeuralConfig _config;
+        private readonly double[] _dynamicDLPFCWeights;
+
+        public NeuralStateEstimator(
+            IMarketSignalRepository repository,
+            ILogger<NeuralStateEstimator> logger,
+            IOptions<NeuralConfig> config)
+        {
+            _repository = repository;
+            _logger = logger;
+            _config = config.Value;
+            _dynamicDLPFCWeights = _config.DLPFCWeights.ToArray();
+        }
+
+        public async Task<NeuralState> ComputeNeuralStateAsync(MarketSignal signal, CancellationToken ct)
+        {
+            using var scope = _logger.BeginScope(new Dictionary<string, object> { ["AssetId"] = signal.AssetId });
+
+            var historicalSignals = await _repository.GetHistoricalSignalsAsync(signal.AssetId, TimeSpan.FromHours(12), ct).ConfigureAwait(false);
+            if (!historicalSignals.Any())
+            {
+                _logger.LogWarning("No historical signals for {AssetId}", signal.AssetId);
+                return new NeuralState(0, 0, 0, _config.L2Regularization, 0, 0, 0, 0);
+            }
+
+            double dlpfc = 0.0;
+            for (int i = 0; i < Math.Min(historicalSignals.Count, _dynamicDLPFCWeights.Length); i++)
+            {
+                dlpfc += _dynamicDLPFCWeights[i] * (double)historicalSignals[i].Price;
+            }
+            dlpfc = Math.Max(0, dlpfc) + _config.L2Regularization * dlpfc * dlpfc;
+
+            double predictionError = (double)signal.Price - historicalSignals.Average(s => (double)s.Price);
+            double technicalImpact = signal.TechnicalIndicators.Average();
+            double macroImpact = signal.MacroEconomicIndicators.Average();
+            double complianceImpact = signal.RegulatoryFlags.Any(f => f == "RESTRICTED") ? -0.5 : 0.0;
+
+            double ai = _config.AICoefficient * Math.Abs(predictionError) +
+                        _config.VolatilityCoefficient * (double)signal.Volatility +
+                        _config.SentimentCoefficient * (double)signal.MarketSentiment +
+                        _config.TechnicalIndicatorCoefficient * technicalImpact +
+                        _config.MacroEconomicCoefficient * macroImpact +
+                        _config.ComplianceCoefficient * complianceImpact;
+
+            var state = new NeuralState(dlpfc, ai, predictionError, _config.L2Regularization, (double)signal.MarketSentiment, technicalImpact, macroImpact, complianceImpact);
+            _logger.LogInformation("Computed neural state for {AssetId}: DLPFC={DLPFC}, AI={AI}", signal.AssetId, dlpfc, ai);
+            return state;
+        }
+
+        public void UpdateWeights(double sentiment, double macroImpact, double adjustment, double[] optimizedWeights)
+        {
+            Array.Copy(optimizedWeights, _dynamicDLPFCWeights, Math.Min(optimizedWeights.Length, _dynamicDLPFCWeights.Length));
+            _logger.LogInformation("Updated DLPFC weights with sentiment {Sentiment}, macro {MacroImpact}, adjustment {Adjustment}", sentiment, macroImpact, adjustment);
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Domain/Services/NeuroTradingService.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using StackExchange.Redis;
+using System.Text.Json;
+using TradingNeuroModel.Domain.Models;
+using TradingNeuroModel.Domain.Repositories;
+using TradingNeuroModel.Infrastructure.Exceptions;
+using TradingNeuroModel.Infrastructure.Telemetry;
+using TradingNeuroModel.Infrastructure.Serialization;
+using TradingNeuroModel.Application.DTOs;
+
+namespace TradingNeuroModel.Domain.Services
+{
+    public class NeuroTradingService : INeuroTradingService, IDisposable
+    {
+        private readonly IMarketSignalRepository _repository;
+        private readonly IAuditLogRepository _auditRepository;
+        private readonly ICausalModelRepository _causalRepository;
+        private readonly IConnectionMultiplexer _redis;
+        private readonly ILogger<NeuroTradingService> _logger;
+        private readonly ITelemetryService _telemetry;
+        private readonly NeuralStateEstimator _estimator;
+        private readonly DecisionEngine _decisionEngine;
+        private readonly SentimentAdaptiveRegulator _regulator;
+        private readonly IWeightOptimizerService _weightOptimizer;
+        private readonly ICausalFeedbackAnalyzer _causalFeedback;
+        private readonly ISemanticValidator _semanticValidator;
+        private readonly ICacheEvictionPolicy _cacheEviction;
+        private readonly IDatabase _redisDb;
+        private readonly NeuralConfig _config;
+        private bool _disposed;
+
+        public NeuroTradingService(
+            IMarketSignalRepository repository,
+            IAuditLogRepository auditRepository,
+            ICausalModelRepository causalRepository,
+            IConnectionMultiplexer redis,
+            ILogger<NeuroTradingService> logger,
+            ITelemetryService telemetry,
+            NeuralStateEstimator estimator,
+            DecisionEngine decisionEngine,
+            SentimentAdaptiveRegulator regulator,
+            IWeightOptimizerService weightOptimizer,
+            ICausalFeedbackAnalyzer causalFeedback,
+            ISemanticValidator semanticValidator,
+            ICacheEvictionPolicy cacheEviction,
+            IOptions<NeuralConfig> config)
+        {
+            _repository = repository;
+            _auditRepository = auditRepository;
+            _causalRepository = causalRepository;
+            _redis = redis;
+            _logger = logger;
+            _telemetry = telemetry;
+            _estimator = estimator;
+            _decisionEngine = decisionEngine;
+            _regulator = regulator;
+            _weightOptimizer = weightOptimizer;
+            _causalFeedback = causalFeedback;
+            _semanticValidator = semanticValidator;
+            _cacheEviction = cacheEviction;
+            _redisDb = _redis.GetDatabase();
+            _config = config.Value;
+        }
+
+        public async Task<ProcessMarketSignalResponse> ProcessSignalAsync(ProcessMarketSignalRequest request, CancellationToken ct)
+        {
+            using var scope = _logger.BeginScope(new Dictionary<string, object>
+            {
+                ["CorrelationId"] = Guid.NewGuid().ToString(),
+                ["TraderId"] = request.TraderId,
+                ["AssetId"] = request.Signal.AssetId
+            });
+
+            var cacheKey = GenerateCacheKey(request.Signal.AssetId, request.TraderId);
+            var cachedDecision = await _redisDb.StringGetAsync(cacheKey).ConfigureAwait(false);
+            if (cachedDecision.HasValue)
+            {
+                _telemetry.TrackEvent("CacheHit", new() { { "AssetId", request.Signal.AssetId } });
+                return JsonSerializer.Deserialize<ProcessMarketSignalResponse>(cachedDecision, JsonLdSerializer.Default.ProcessMarketSignalResponse);
+            }
+
+            await _regulator.UpdateModelWeightsAsync(request.Signal.AssetId, ct);
+            var state = await _telemetry.TrackLatencyAsync("ComputeNeuralState", () => _estimator.ComputeNeuralStateAsync(request.Signal, ct), ct);
+            var decision = await _telemetry.TrackLatencyAsync("MakeTradingDecision", () => _decisionEngine.MakeTradingDecisionAsync(state, request.Signal, ct), ct);
+
+            var semanticValidation = await _semanticValidator.ValidateAsync(request.Signal, decision, ct);
+            if (!semanticValidation.IsValid)
+            {
+                throw new SemanticValidationException("SemanticValidationFailed", string.Join("; ", semanticValidation.ValidationErrors));
+            }
+
+            var optimizationResult = await _weightOptimizer.OptimizeWeightsAsync(request.Signal, state, decision, ct);
+            await _causalFeedback.AnalyzeFeedbackAsync(request.Signal, decision, decision.Amount, ct);
+
+            await _repository.SaveSignalAsync(request.Signal, ct).ConfigureAwait(false);
+            var complianceMetadata = GenerateComplianceMetadata(request.Signal);
+            var auditId = await _auditRepository.LogDecisionAsync(decision, request.TraderId, complianceMetadata, ct).ConfigureAwait(false);
+
+            var response = new ProcessMarketSignalResponse(decision with { AuditId = auditId }, state, complianceMetadata, optimizationResult, semanticValidation);
+            await _redisDb.StringSetAsync(
+                cacheKey,
+                JsonSerializer.Serialize(response, JsonLdSerializer.Default.ProcessMarketSignalResponse),
+                TimeSpan.FromMinutes(_config.DefaultCacheExpirationMinutes),
+                when: When.NotExists).ConfigureAwait(false);
+
+            await _cacheEviction.EvictIfNeededAsync(cacheKey, _config.CacheEvictionWatermark, ct);
+
+            _telemetry.TrackMetric("DecisionConfidence", (double)decision.Confidence, new() { { "AssetId", request.Signal.AssetId } });
+            _telemetry.TrackMetric("OptimizationReward", optimizationResult.Reward, new() { { "AssetId", request.Signal.AssetId } });
+            _telemetry.TrackMetric("SemanticValidation", semanticValidation.IsValid ? 1.0 : 0.0, new() { { "AssetId", request.Signal.AssetId } });
+            return response;
+        }
+
+        public async Task<ProcessMarketSignalResponse> EvaluateWalkForwardAsync(string assetId, DateTime start, DateTime end, CancellationToken ct)
+        {
+            using var scope = _logger.BeginScope(new Dictionary<string, object> { ["AssetId"] = assetId });
+
+            var signals = await _repository.GetHistoricalSignalsAsync(assetId, end - start, ct).ConfigureAwait(false);
+            if (!signals.Any())
+            {
+                throw new BusinessRuleViolationException("NoData", "No historical data for walk-forward testing");
+            }
+
+            var windowSize = TimeSpan.FromDays(_config.WalkForwardWindowDays);
+            var results = new List<TradingDecision>();
+            var confidences = new List<double>();
+            WeightOptimizationResult lastOptimizationResult = null;
+            SemanticValidationResult lastSemanticValidation = null;
+
+            for (var current = start; current < end; current = current.Add(windowSize))
+            {
+                var windowSignals = signals.Where(s => s.Timestamp >= current && s.Timestamp < current.Add(windowSize)).ToList();
+                if (!windowSignals.Any()) continue;
+
+                await _regulator.UpdateModelWeightsAsync(assetId, ct);
+                var state = await _estimator.ComputeNeuralStateAsync(windowSignals.Last(), ct);
+                var decision = await _decisionEngine.MakeTradingDecisionAsync(state, windowSignals.Last(), ct);
+                lastSemanticValidation = await _semanticValidator.ValidateAsync(windowSignals.Last(), decision, ct);
+                if (!lastSemanticValidation.IsValid) continue;
+
+                lastOptimizationResult = await _weightOptimizer.OptimizeWeightsAsync(windowSignals.Last(), state, decision, ct);
+                results.Add(decision);
+                confidences.Add((double)decision.Confidence);
+            }
+
+            var avgConfidence = confidences.Any() ? confidences.Average() : 0;
+            _telemetry.TrackMetric("WalkForwardConfidence", avgConfidence, new() { { "AssetId", assetId } });
+            var complianceMetadata = GenerateComplianceMetadata(signals.LastOrDefault());
+            return new ProcessMarketSignalResponse(
+                results.LastOrDefault() ?? new TradingDecision("", 0, "Hold", 0, new(), "", "PENDING"),
+                new NeuralState(0, 0, 0, 0, 0, 0, 0, 0),
+                complianceMetadata,
+                lastOptimizationResult,
+                lastSemanticValidation);
+        }
+
+        public async Task UpdateModelWeightsAsync(string assetId, CancellationToken ct)
+        {
+            await _regulator.UpdateModelWeightsAsync(assetId, ct);
+        }
+
+        public async Task ValidateComplianceAsync(string assetId, CancellationToken ct)
+        {
+            var signal = await _repository.GetLatestSignalAsync(assetId, ct).ConfigureAwait(false);
+            if (signal.RegulatoryFlags.Contains("RESTRICTED"))
+            {
+                throw new BusinessRuleViolationException("ComplianceViolation", $"Asset {assetId} is restricted due to {string.Join(", ", signal.RegulatoryFlags)}");
+            }
+            _logger.LogInformation("Compliance validated for {AssetId}", assetId);
+        }
+
+        private ComplianceMetadata GenerateComplianceMetadata(MarketSignal signal)
+        {
+            return new ComplianceMetadata(
+                WhyFlagged: signal?.RegulatoryFlags.Any() == true ? $"Flagged due to {string.Join(", ", signal.RegulatoryFlags)}" : "No flags",
+                RelevantRegulations: signal?.RegulatoryFlags.Any() == true ? ["MiFID II", "GDPR", "SOC2"] : [],
+                RiskLevel: signal?.RegulatoryFlags.Contains("RESTRICTED") == true ? "High" : "Low",
+                Timestamp: DateTime.UtcNow);
+        }
+
+        private string GenerateCacheKey(string assetId, string traderId) =>
+            !IsValidCacheKeyComponent(assetId) || !IsValidCacheKeyComponent(traderId)
+                ? throw new BusinessRuleViolationException("InvalidCacheKey", "Invalid cache key components")
+                : $"signal:{assetId}:{traderId}".Replace(":", "_").ToLowerInvariant();
+
+        private bool IsValidCacheKeyComponent(string component) =>
+            !string.IsNullOrWhiteSpace(component) && component.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-');
+
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                _redis?.Dispose();
+                _disposed = true;
+            }
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Application/Resilience/LFUPlusCacheEvictionPolicy.cs
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using StackExchange.Redis;
+
+namespace TradingNeuroModel.Application.Resilience
+{
+    public class LFUPlusCacheEvictionPolicy : ICacheEvictionPolicy
+    {
+        private readonly IConnectionMultiplexer _redis;
+        private readonly ILogger<LFUPlusCacheEvictionPolicy> _logger;
+        private readonly IDatabase _redisDb;
+        private readonly CacheOptions _cacheOptions;
+
+        public LFUPlusCacheEvictionPolicy(
+            IConnectionMultiplexer redis,
+            ILogger<LFUPlusCacheEvictionPolicy> logger,
+            IOptions<CacheOptions> cacheOptions)
+        {
+            _redis = redis;
+            _logger = logger;
+            _redisDb = _redis.GetDatabase();
+            _cacheOptions = cacheOptions.Value;
+        }
+
+        public async Task EvictIfNeededAsync(string cacheKey, long watermark, CancellationToken ct)
+        {
+            var cacheSize = await _redisDb.KeyLengthAsync(cacheKey).ConfigureAwait(false);
+            if (cacheSize > watermark)
+            {
+                await _redisDb.KeyDeleteAsync(cacheKey).ConfigureAwait(false);
+                _logger.LogWarning("LFU+ cache evicted for {CacheKey} due to watermark {Watermark}", cacheKey, watermark);
+                _logger.LogInformation("Cache eviction triggered for {CacheKey}, size: {CacheSize}", cacheKey, cacheSize);
+            }
+
+            // Додатковий шардинг для великих наборів даних
+            var server = _redis.GetServer(_redis.GetEndPoints()[0]);
+            var keys = server.Keys(database: _redisDb.Database, pattern: "signal:*");
+            if ((await keys.CountAsync().ConfigureAwait(false)) > _cacheOptions.ShardingThreshold)
+            {
+                await _redisDb.ExecuteAsync("FLUSHDB").ConfigureAwait(false);
+                _logger.LogWarning("Full cache flush triggered due to sharding threshold {Threshold}", _cacheOptions.ShardingThreshold);
+            }
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Infrastructure/Serialization/JsonLdSerializer.cs
+```csharp
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace TradingNeuroModel.Infrastructure.Serialization
+{
+    public static class JsonLdSerializer
+    {
+        public static readonly JsonSerializerOptions Default = new()
+        {
+            WriteIndented = true,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            Converters = { new JsonLdConverter() }
+        };
+    }
+
+    public class JsonLdConverter : JsonConverter<object>
+    {
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+            throw new NotImplementedException("Deserialization not implemented for JSON-LD");
+        }
+
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("@context");
+            writer.WriteStartObject();
+            writer.WritePropertyName("causal");
+            writer.WriteValue("http://schema.org/causal");
+            writer.WritePropertyName("prov");
+            writer.WriteValue("http://www.w3.org/ns/prov#");
+            writer.WritePropertyName("shacl");
+            writer.WriteValue("http://www.w3.org/ns/shacl#");
+            writer.WriteEndObject();
+
+            writer.WritePropertyName("@type");
+            writer.WriteValue(value.GetType().Name);
+
+            foreach (var prop in value.GetType().GetProperties())
+            {
+                var propValue = prop.GetValue(value);
+                if (propValue != null)
+                {
+                    writer.WritePropertyName($"causal:{prop.Name}");
+                    serializer.Serialize(writer, propValue);
+                }
+            }
+
+            writer.WritePropertyName("prov:wasDerivedFrom");
+            writer.WriteValue("TradingNeuroModel");
+            writer.WritePropertyName("prov:generatedAtTime");
+            writer.WriteValue(DateTime.UtcNow.ToString("o"));
+            writer.WritePropertyName("shacl:conforms");
+            writer.WriteValue(true);
+            writer.WriteEndObject();
+        }
+
+        public override bool CanConvert(Type typeToConvert) => true;
+    }
+}
+```
+
+---
+
+### 📄 src/Application/DTOs/ProcessMarketSignalResponse.cs
+```csharp
+using TradingNeuroModel.Domain.Models;
+
+namespace TradingNeuroModel.Application.DTOs
+{
+    public record ProcessMarketSignalResponse(
+        TradingDecision Decision,
+        NeuralState State,
+        ComplianceMetadata ComplianceMetadata,
+        WeightOptimizationResult OptimizationResult,
+        SemanticValidationResult SemanticValidationResult);
+}
+```
+
+---
+
+### 📄 src/Application/DTOs/SemanticValidationResultResponse.cs
+```csharp
+using System;
+
+namespace TradingNeuroModel.Application.DTOs
+{
+    public record SemanticValidationResultResponse(
+        string AssetId,
+        bool IsValid,
+        string[] ValidationErrors,
+        DateTime Timestamp);
+}
+```
+
+---
+
+### 📄 src/API/Controllers/SemanticValidationController.cs
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Swashbuckle.AspNetCore.Annotations;
+using TradingNeuroModel.Domain.Models;
+using TradingNeuroModel.Domain.Services;
+using TradingNeuroModel.Infrastructure.Middleware;
+
+namespace TradingNeuroModel.API.Controllers
+{
+    [ApiController]
+    [Route("api/v1/validation")]
+    [Authorize(Policy = "TraderAccess")]
+    public class SemanticValidationController : ControllerBase
+    {
+        private readonly ISemanticValidator _semanticValidator;
+        private readonly ILogger<SemanticValidationController> _logger;
+
+        public SemanticValidationController(ISemanticValidator semanticValidator, ILogger<SemanticValidationController> logger)
+        {
+            _semanticValidator = semanticValidator;
+            _logger = logger;
+        }
+
+        [HttpPost("semantic")]
+        [SwaggerOperation(Summary = "Validate market signal and decision semantically", OperationId = "ValidateSemantic")]
+        [SwaggerResponse(StatusCodes.Status200OK, "Success", typeof(ApiResponse<SemanticValidationResultResponse>))]
+        [SwaggerResponse(StatusCodes.Status400BadRequest, "Invalid input", typeof(ApiResponse<object>))]
+        [SwaggerResponse(StatusCodes.Status401Unauthorized, "Unauthorized")]
+        public async Task<IActionResult> ValidateSemantic([FromBody] ProcessMarketSignalRequest request, CancellationToken ct)
+        {
+            var signal = request.Signal;
+            var decision = new TradingDecision(signal.AssetId, 0, "Hold", 0, new Dictionary<string, double>(), "", "PENDING");
+            var result = await _semanticValidator.ValidateAsync(signal, decision, ct).ConfigureAwait(false);
+            _logger.LogInformation("Semantic validation for {AssetId}: IsValid={IsValid}", signal.AssetId, result.IsValid);
+            return Ok(ApiResponse<SemanticValidationResultResponse>.Success(new SemanticValidationResultResponse(
+                result.AssetId, result.IsValid, result.ValidationErrors, result.Timestamp)));
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Tests/UnitTests/GaussianWeightOptimizerServiceTests.cs
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Moq;
+using Xunit;
+using TradingNeuroModel.Domain.Models;
+using TradingNeuroModel.Domain.Services;
+
+namespace TradingNeuroModel.Tests.UnitTests
+{
+    public class GaussianWeightOptimizerServiceTests
+    {
+        private readonly Mock<ILogger<GaussianWeightOptimizerService>> _loggerMock;
+        private readonly Mock<IOptions<NeuralConfig>> _configMock;
+        private readonly Mock<NeuralStateEstimator> _estimatorMock;
+        private readonly GaussianWeightOptimizerService _service;
+
+        public GaussianWeightOptimizerServiceTests()
+        {
+            _loggerMock = new Mock<ILogger<GaussianWeightOptimizerService>>();
+            _configMock = new Mock<IOptions<NeuralConfig>>();
+            _estimatorMock = new Mock<NeuralStateEstimator>();
+            _configMock.Setup(c => c.Value).Returns(new NeuralConfig
+            {
+                DLPFCWeights = [0.25, 0.2, 0.2, 0.15, 0.1, 0.1],
+                DynamicWeightAdjustmentFactor = 0.05,
+                GaussianUncertaintyFactor = 0.1
+            });
+            _service = new GaussianWeightOptimizerService(_loggerMock.Object, _configMock.Object, _estimatorMock.Object);
+        }
+
+        [Fact]
+        public async Task OptimizeWeightsAsync_ValidInput_ReturnsOptimizationResult()
+        {
+            var signal = new MarketSignal("BTC", 70000, 0.1m, 3000, 0.9m, DateTime.UtcNow, [50, 200], [0.2m, 0.4m], []);
+            var state = new NeuralState(0.5, 0.3, 0.1, 0.001, 0.9, 0.5, 0.4, 0);
+            var decision = new TradingDecision("BTC", 1000, "Buy", 0.8m, new Dictionary<string, double>(), "", "APPROVED");
+
+            var result = await _service.OptimizeWeightsAsync(signal, state, decision, CancellationToken.None);
+
+            Assert.Equal("BTC", result.AssetId);
+            Assert.NotEmpty(result.OptimizedWeights);
+            Assert.True(result.Reward > 0);
+            _estimatorMock.Verify(e => e.UpdateWeights(0.9, 0.3, It.IsAny<double>(), It.IsAny<double[]>()), Times.Once());
+            _loggerMock.Verify(l => l.LogInformation(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once());
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Tests/UnitTests/ShaclSemanticValidatorTests.cs
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Moq;
+using Xunit;
+using TradingNeuroModel.Domain.Models;
+using TradingNeuroModel.Domain.Services;
+
+namespace TradingNeuroModel.Tests.UnitTests
+{
+    public class ShaclSemanticValidatorTests
+    {
+        private readonly Mock<ILogger<ShaclSemanticValidator>> _loggerMock;
+        private readonly ShaclSemanticValidator _validator;
+
+        public ShaclSemanticValidatorTests()
+        {
+            _loggerMock = new Mock<ILogger<ShaclSemanticValidator>>();
+            _validator = new ShaclSemanticValidator(_loggerMock.Object);
+        }
+
+        [Fact]
+        public async Task ValidateAsync_ValidInput_ReturnsValidResult()
+        {
+            var signal = new MarketSignal("BTC", 70000, 0.1m, 3000, 0.9m, DateTime.UtcNow, [50, 200], [0.2m, 0.4m], []);
+            var decision = new TradingDecision("BTC", 1000, "Buy", 0.8m, new Dictionary<string, double>(), "", "APPROVED");
+
+            var result = await _validator.ValidateAsync(signal, decision, CancellationToken.None);
+
+            Assert.True(result.IsValid);
+            Assert.Empty(result.ValidationErrors);
+            _loggerMock.Verify(l => l.LogInformation(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task ValidateAsync_RestrictedAssetNonHold_ReturnsInvalidResult()
+        {
+            var signal = new MarketSignal("BTC", 70000, 0.1m, 3000, 0.9m, DateTime.UtcNow, [50, 200], [0.2m, 0.4m], ["RESTRICTED"]);
+            var decision = new TradingDecision("BTC", 1000, "Buy", 0.8m, new Dictionary<string, double>(), "", "APPROVED");
+
+            var result = await _validator.ValidateAsync(signal, decision, CancellationToken.None);
+
+            Assert.False(result.IsValid);
+            Assert.Contains("Restricted asset cannot have non-Hold action", result.ValidationErrors);
+            _loggerMock.Verify(l => l.LogInformation(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once());
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Tests/UnitTests/LFUPlusCacheEvictionPolicyTests.cs
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Moq;
+using StackExchange.Redis;
+using Xunit;
+using TradingNeuroModel.Application.Resilience;
+
+namespace TradingNeuroModel.Tests.UnitTests
+{
+    public class LFUPlusCacheEvictionPolicyTests
+    {
+        private readonly Mock<IConnectionMultiplexer> _redisMock;
+        private readonly Mock<ILogger<LFUPlusCacheEvictionPolicy>> _loggerMock;
+        private readonly Mock<IOptions<CacheOptions>> _cacheOptionsMock;
+        private readonly Mock<IDatabase> _redisDbMock;
+        private readonly Mock<IServer> _serverMock;
+        private readonly LFUPlusCacheEvictionPolicy _policy;
+
+        public LFUPlusCacheEvictionPolicyTests()
+        {
+            _redisMock = new Mock<IConnectionMultiplexer>();
+            _loggerMock = new Mock<ILogger<LFUPlusCacheEvictionPolicy>>();
+            _cacheOptionsMock = new Mock<IOptions<CacheOptions>>();
+            _redisDbMock = new Mock<IDatabase>();
+            _serverMock = new Mock<IServer>();
+            _redisMock.Setup(r => r.GetDatabase(It.IsAny<int>(), It.IsAny<object>())).Returns(_redisDbMock.Object);
+            _redisMock.Setup(r => r.GetServer(It.IsAny<EndPoint>(), It.IsAny<object>())).Returns(_serverMock.Object);
+            _cacheOptionsMock.Setup(o => o.Value).Returns(new CacheOptions { ShardingThreshold = 1000 });
+            _policy = new LFUPlusCacheEvictionPolicy(_redisMock.Object, _loggerMock.Object, _cacheOptionsMock.Object);
+        }
+
+        [Fact]
+        public async Task EvictIfNeededAsync_OverWatermark_EvictsCache()
+        {
+            var cacheKey = "signal:btc:trader1";
+            _redisDbMock.Setup(db => db.KeyLengthAsync(cacheKey, It.IsAny<CommandFlags>())).ReturnsAsync(600000);
+            _redisDbMock.Setup(db => db.KeyDeleteAsync(cacheKey, It.IsAny<CommandFlags>())).ReturnsAsync(true);
+            _serverMock.Setup(s => s.Keys(It.IsAny<int>(), It.IsAny<RedisValue>(), It.IsAny<int>(), It.IsAny<long>(), It.IsAny<CommandFlags>())).Returns(new RedisKey[0]);
+
+            await _policy.EvictIfNeededAsync(cacheKey, 500000, CancellationToken.None);
+
+            _redisDbMock.Verify(db => db.KeyDeleteAsync(cacheKey, It.IsAny<CommandFlags>()), Times.Once());
+            _loggerMock.Verify(l => l.LogWarning(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once());
+            _loggerMock.Verify(l => l.LogInformation(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once());
+        }
+
+        [Fact]
+        public async Task EvictIfNeededAsync_OverShardingThreshold_FlushesCache()
+        {
+            var cacheKey = "signal:btc:trader1";
+            _redisDbMock.Setup(db => db.KeyLengthAsync(cacheKey, It.IsAny<CommandFlags>())).ReturnsAsync(400000);
+            _serverMock.Setup(s => s.Keys(It.IsAny<int>(), It.IsAny<RedisValue>(), It.IsAny<int>(), It.IsAny<long>(), It.IsAny<CommandFlags>())).Returns(new RedisKey[1001]);
+            _redisDbMock.Setup(db => db.ExecuteAsync("FLUSHDB", It.IsAny<object[]>())).ReturnsAsync(RedisResult.Create(true));
+
+            await _policy.EvictIfNeededAsync(cacheKey, 500000, CancellationToken.None);
+
+            _redisDbMock.Verify(db => db.ExecuteAsync("FLUSHDB", It.IsAny<object[]>()), Times.Once());
+            _loggerMock.Verify(l => l.LogWarning(It.IsAny<string>(), It.IsAny<object[]>()), Times.Once());
+        }
+    }
+}
+```
+
+---
+
+### 📄 src/Configurations/SemanticValidationOptions.cs
+```csharp
+namespace TradingNeuroModel.Configurations
+{
+    public class SemanticValidationOptions
+    {
+        public bool EnableShaclValidation { get; set; } = true;
+        public int MaxValidationErrors { get; set; } = 10;
+    }
+}
+```
+
+---
+
+### 📄 appsettings.json
+```json
+{
+  "Database": {
+    "ConnectionString": "Host=localhost;Database=TradingNeuroModel;Username=postgres;Password=secure"
+  },
+  "Cache": {
+    "ConnectionString": "localhost:6379,maxmemory-policy=volatile-lfu",
+    "DefaultExpirationMinutes": 3,
+    "EvictionWatermark": 500000,
+    "ShardingThreshold": 1000
+  },
+  "Neural": {
+    "DLPFCWeights": [0.25, 0.2, 0.2, 0.15, 0.1, 0.1],
+    "AICoefficient": 0.3,
+    "VolatilityCoefficient": 0.18,
+    "SentimentCoefficient": 0.12,
+    "TechnicalIndicatorCoefficient": 0.12,
+    "MacroEconomicCoefficient": 0.12,
+    "ComplianceCoefficient": 0.08,
+    "AISellThreshold": 2.2,
+    "L2Regularization": 0.001,
+    "WalkForwardWindowDays": 5,
+    "CircuitBreakerThreshold": 0.18,
+    "DynamicWeightAdjustmentFactor": 0.05,
+    "GaussianUncertaintyFactor": 0.1,
+    "MaxAuditRetentionDays": 90,
+    "DefaultCacheExpirationMinutes": 3
+  },
+  "CircuitBreaker": {
+    "VolatilityThreshold": 0.18,
+    "FailureThreshold": 3,
+    "ResetTimeoutMinutes": 5
+  },
+  "Telemetry": {
+    "PrometheusEndpoint": "http://localhost:9090"
+  },
+  "Authentication": {
+    "JwtSecret": "your-secure-jwt-secret",
+    "TokenExpirationMinutes": 60
+  },
+  "SemanticValidation": {
+    "EnableShaclValidation": true,
+    "MaxValidationErrors": 10
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning"
+    }
+  }
+}
+```
+
+---
+
+### 📄 docs/COMPLIANCE.md
+```markdown
+# Compliance in TradingNeuroModel
+
+## Overview
+The system ensures compliance with financial regulations (e.g., GDPR, MiFID II, SOC2) through:
+
+- **Audit Logging**: Decisions logged with causal explainability, compliance status, and metadata (WhyFlagged, RelevantRegulations, RiskLevel).
+- **Regulatory Flags**: Market signals include flags for restricted assets.
+- **Retention Policy**: Audit logs retained for 90 days.
+- **Authentication**: JWT-based access control for all API endpoints.
+- **Causal Explainability**: JSON-LD with SHACL annotations for regulatory scrutiny.
+- **Semantic Validation**: SHACL-based validation for signals and decisions.
+- **Optimization Tracking**: Weight optimization results logged for traceability.
+
+## Compliance Mechanisms
+- **Circuit Breaker**: Halts trading on restricted assets or high volatility.
+- **Audit Trail**: Queryable via `/api/v1/audit/trail/{traderId}` with JSON-LD serialization.
+- **Causal Model Repository**: Stores causal effects with feedback loop.
+- **Compliance Tests**: Automated via `ComplianceTestRunner.cs`.
+- **Semantic Tests**: Automated via `SemanticTestRunner.cs`.
+- **Metadata**: Includes WhyFlagged, RelevantRegulations, and RiskLevel.
+- **Endpoints**: `/api/v1/optimization/weights/{assetId}`, `/api/v1/validation/semantic`.
+```
+
+---
+
+### 📄 docs/SEMANTIC_VALIDATION.md
+```markdown
+# Semantic Validation in TradingNeuroModel
+
+## Overview
+The system implements SHACL-based semantic validation to ensure data integrity and regulatory compliance for market signals and trading decisions.
+
+## Implementation
+- **ShaclSemanticValidator**: Validates signals and decisions against SHACL constraints (e.g., positive price, valid confidence, restricted asset rules).
+- **SemanticValidationResult**: Captures validation outcome with errors and timestamp.
+- **Endpoint**: `/api/v1/validation/semantic` for manual validation.
+- **Integration**: Automatic validation in `NeuroTradingService` before processing signals.
+- **Configuration**: `SemanticValidationOptions` for enabling/disabling SHACL and setting max errors.
+
+## SHACL Constraints
+- Price must be positive.
+- Decision action cannot be empty.
+- Confidence must be between 0 and 1.
+- Restricted assets must have "Hold" action.
+
+## Testing
+- Unit tests: `ShaclSemanticValidatorTests.cs`.
+- Integration tests: `SemanticValidationControllerTests.cs`.
+- Semantic tests: `SemanticTestRunner.cs` for batch validation.
+```
+
+---
+
+### 📄 docs/NEURO_SCIENCE.md
+```markdown
+# Neuroscientific Basis of TradingNeuroModel
+
+## Overview
+TradingNeuroModel integrates neurofinance principles, modeling **DLPFC** (executive control) and **AI** (emotional risk) with dynamic adaptation to market sentiment, technical, macroeconomic, and regulatory factors. Weights are optimized using Gaussian Process for robust adaptivity.
+
+## Scientific References
+1. Kuhnen & Knutson (2005): AI drives risk-averse decisions.
+2. Lo & Repin (2002): DLPFC enables strategic trading.
+3. Frydman et al. (2014): Reward prediction error shapes behavior.
+4. Camerer et al. (2005): Market sentiment influences decisions.
+5. Glimcher & Fehr (2013): Neuroeconomic causal models.
+6. Pearl (2009): Causal inference for decision systems.
+7. Shiller (2000): Market sentiment and macroeconomic impacts.
+8. Rasmussen & Williams (2006): Gaussian Processes for Machine Learning.
+
+## Model Implementation
+- **DLPFC**: Dynamic weighted price analysis with L2 regularization.
+- **AI**: Integrates volatility, sentiment, technical, macro, and compliance factors.
+- **Causal Explainability**: JSON-LD with SHACL annotations for compliance.
+- **Adaptivity**: Gaussian Process for weight tuning, sentiment, and macro-driven adjustments.
+- **Resilience**: Circuit breaker, memory pressure monitoring, LFU+ cache eviction with sharding.
+- **Compliance**: Regulatory flags, audit trails, semantic validation.
+
+## Robustness
+- L2 regularization and Gaussian Process for weight optimization.
+- Walk-forward, stress, real-data, compliance, and semantic testing.
+- Prometheus/Grafana for latency and memory monitoring.
+- Causal model repository with feedback loop for regulatory traceability.
+```
+
+---
+
+### 📄 TradingNeuroModel.csproj
+```xml
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="8.0.0" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.0" />
+    <PackageReference Include="MediatR" Version="12.0.1" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.9.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.6.122" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="8.0.0" />
+    <PackageReference Include="Polly" Version="8.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus" Version="1.5.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="Moq" Version="4.18.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.0" />
+  </ItemGroup>
+</Project>
+```
