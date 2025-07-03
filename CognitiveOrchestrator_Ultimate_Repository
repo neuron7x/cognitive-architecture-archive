@@ -1,0 +1,1909 @@
+```
+
+```
+cognitive-orchestrator/
+├── .github/
+│   ├── workflows/
+│   │   ├── ci.yml
+│   │   ├── cd.yml
+│   │   ├── model-validation.yml
+│   │   ├── security-scan.yml
+│   │   ├── dependency-update.yml
+│   │   ├── release.yml
+│   │   ├── docs-deploy.yml
+│   │   ├── benchmarks.yml
+│   │   ├── chaos-test.yml
+│   ├── ISSUE_TEMPLATE/
+│   │   ├── bug_report.yml
+│   │   ├── feature_request.yml
+│   │   ├── model_issue.yml
+│   │   ├── performance_issue.yml
+│   │   ├── research_question.yml
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   ├── FUNDING.yml
+│   ├── dependabot.yml
+│   ├── renovate.json
+├── src/
+│   ├── CognitiveOrchestrator/
+│   │   ├── __init__.py
+│   │   ├── domain/
+│   │   │   ├── __init__.py
+│   │   │   ├── entities/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── agent.py
+│   │   │   │   ├── orchestrator.py
+│   │   │   │   ├── result.py
+│   │   │   ├── value_objects/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── task.py
+│   │   │   │   ├── agent_config.py
+│   │   │   │   ├── correlation_id.py
+│   │   │   ├── interfaces/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── agent_repository.py
+│   │   │   │   ├── orchestrator_service.py
+│   │   │   │   ├── cache_service.py
+│   │   │   │   ├── telemetry_service.py
+│   │   │   ├── exceptions/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── business_rule_violation.py
+│   │   │   │   ├── infrastructure_error.py
+│   │   │   │   ├── validation_error.py
+│   │   ├── application/
+│   │   │   ├── __init__.py
+│   │   │   ├── services/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── orchestrator_service.py
+│   │   │   │   ├── coordinator_service.py
+│   │   │   │   ├── noise_filter_service.py
+│   │   │   │   ├── interpreter_service.py
+│   │   │   │   ├── synthesizer_service.py
+│   │   │   ├── commands/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── orchestrate_command.py
+│   │   │   │   ├── initialize_command.py
+│   │   │   ├── dtos/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── orchestrate_request.py
+│   │   │   │   ├── orchestrate_response.py
+│   │   │   ├── validators/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── orchestrate_validator.py
+│   │   │   │   ├── agent_config_validator.py
+│   │   │   ├── handlers/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── orchestrate_handler.py
+│   │   │   │   ├── initialize_handler.py
+│   │   │   ├── events/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── task_processed_event.py
+│   │   │   │   ├── orchestration_completed_event.py
+│   │   ├── infrastructure/
+│   │   │   ├── __init__.py
+│   │   │   ├── repositories/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── agent_repository.py
+│   │   │   ├── external/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── language_model_client.py
+│   │   │   ├── caching/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── redis_cache.py
+│   │   │   ├── logging/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── structured_logging.py
+│   │   │   ├── telemetry/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── telemetry_service.py
+│   │   │   ├── health/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── health_check.py
+│   │   ├── presentation/
+│   │   │   ├── __init__.py
+│   │   │   ├── api/
+│   │   │   │   ├── __init__.py
+│   │   │   │   ├── endpoints.py
+│   │   │   │   ├── middleware.py
+├── tests/
+│   ├── unit/
+│   │   ├── test_orchestrator_service.py
+│   │   ├── test_agent_repository.py
+│   │   ├── test_noise_filter_service.py
+│   │   ├── test_interpreter_service.py
+│   │   ├── test_synthesizer_service.py
+│   │   ├── test_language_model_client.py
+│   │   ├── test_orchestrate_validator.py
+│   │   ├── test_agent_config_validator.py
+│   │   ├── test_redis_cache.py
+│   │   ├── test_telemetry_service.py
+│   ├── integration/
+│   │   ├── test_pipeline.py
+│   │   ├── test_caching.py
+│   ├── e2e/
+│   │   ├── test_api.py
+│   │   ├── test_health_check.py
+├── docs/
+│   ├── api/
+│   │   ├── orchestrator_service.md
+│   │   ├── agent_repository.md
+│   │   ├── noise_filter_service.md
+│   │   ├── interpreter_service.md
+│   │   ├── synthesizer_service.md
+│   │   ├── language_model_client.md
+│   │   ├── orchestrate_validator.md
+│   │   ├── agent_config_validator.md
+│   │   ├── redis_cache.md
+│   │   ├── telemetry_service.md
+│   │   ├── health_check.md
+│   ├── guides/
+│   │   ├── getting_started.md
+│   │   ├── configuration.md
+│   │   ├── usage.md
+│   │   ├── deployment.md
+│   │   ├── contributing.md
+│   │   ├── telemetry.md
+│   │   ├── health_check.md
+│   ├── examples/
+│   │   ├── basic_usage.py
+│   │   ├── advanced_usage.ipynb
+│   │   ├── api_usage.py
+│   │   ├── batch_processing.py
+│   ├── research/
+│   │   ├── experiments.md
+│   │   ├── benchmarks.md
+│   │   ├── architecture.md
+├── scripts/
+│   ├── setup_env.py
+│   ├── run_orchestrator.py
+│   ├── benchmark.py
+│   ├── validate_system.py
+│   ├── chaos_test.py
+├── docker/
+│   ├── Dockerfile
+│   ├── Dockerfile.gpu
+│   ├── docker-compose.yml
+├── configs/
+│   ├── orchestrator.yaml
+│   ├── logging.yaml
+│   ├── deployment.yaml
+│   ├── telemetry.yaml
+├── requirements.txt
+├── requirements-dev.txt
+├── pyproject.toml
+├── setup.py
+├── .gitignore
+├── .env.example
+├── README.md
+├── CONTRIBUTING.md
+├── CODE_OF_CONDUCT.md
+├── SECURITY.md
+├── LICENSE
+├── CHANGELOG.md
+├── Makefile
+├── .pre-commit-config.yaml
+```
+
+### .github/workflows/ci.yml
+```yaml
+name: CI Pipeline
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run linting
+        run: make lint
+      - name: Run type checking
+        run: mypy src tests
+      - name: Run tests
+        run: make test
+      - name: Generate coverage report
+        run: make coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+```
+
+### .github/workflows/cd.yml
+```yaml
+name: CD Pipeline
+on:
+  push:
+    branches: [ main ]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Build and push Docker image
+        run: |
+          docker build -t xaiorg/cognitive-orchestrator:latest .
+          docker push xaiorg/cognitive-orchestrator:latest
+      - name: Deploy to production
+        run: |
+          make deploy
+        env:
+          DEPLOYMENT_TOKEN: ${{ secrets.DEPLOYMENT_TOKEN }}
+```
+
+### .github/workflows/model-validation.yml
+```yaml
+name: Model Validation
+on:
+  push:
+    branches: [ main, develop ]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run system validation
+        run: python scripts/validate_system.py
+      - name: Upload validation results
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results
+          path: validation_results/
+```
+
+### .github/workflows/security-scan.yml
+```yaml
+name: Security Scan
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+      - name: Run Bandit
+        run: |
+          pip install bandit
+          bandit -r src/
+      - name: Run Safety
+        run: |
+          pip install safety
+          safety check -r requirements.txt
+```
+
+### .github/workflows/dependency-update.yml
+```yaml
+name: Dependency Update
+on:
+  schedule:
+    - cron: '0 0 * * *'
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run Renovate
+        uses: renovatebot/github-action@v40.2.7
+        with:
+          token: ${{ secrets.RENOVATE_TOKEN }}
+```
+
+### .github/workflows/release.yml
+```yaml
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Build and publish to PyPI
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          python setup.py sdist bdist_wheel
+          twine upload dist/*
+```
+
+### .github/workflows/docs-deploy.yml
+```yaml
+name: Deploy Documentation
+on:
+  push:
+    branches: [ main ]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Build docs
+        run: make docs
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/_build/html
+```
+
+### .github/workflows/benchmarks.yml
+```yaml
+name: Benchmarks
+on:
+  push:
+    branches: [ main, develop ]
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run benchmarks
+        run: python scripts/benchmark.py
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_results/
+```
+
+### .github/workflows/chaos-test.yml
+```yaml
+name: Chaos Test
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run chaos test
+        run: python scripts/chaos_test.py
+      - name: Upload chaos test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: chaos-test-results
+          path: chaos_test_results/
+```
+
+### .github/ISSUE_TEMPLATE/bug_report.yml
+```yaml
+name: Bug Report
+description: File a bug report to help us improve
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Please copy and paste any relevant log output.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version of CognitiveOrchestrator are you running?
+      placeholder: e.g., 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: What is your operating system and Python version?
+      placeholder: e.g., Ubuntu 20.04, Python 3.10
+    validations:
+      required: true
+```
+
+### .github/ISSUE_TEMPLATE/feature_request.yml
+```yaml
+name: Feature Request
+description: Suggest an idea for this project
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature!
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the feature
+      description: A clear and concise description of what you want to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: Describe the problem this feature would solve or the benefit it would provide.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any alternative solutions or features you've considered.
+    validations:
+      required: false
+```
+
+### .github/ISSUE_TEMPLATE/model_issue.yml
+```yaml
+name: Model Issue
+description: Report an issue specific to the language model or agent behavior
+title: "[MODEL] "
+labels: ["model"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the issue
+      description: A clear and concise description of the issue with the model or agent.
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input provided
+      description: The input text or query provided to the model.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output received
+      description: The output or response from the model.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+      description: What you expected the model to produce.
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Agent specialization
+      description: Which agent specialization was used?
+      placeholder: e.g., Analyzer
+    validations:
+      required: true
+```
+
+### .github/ISSUE_TEMPLATE/performance_issue.yml
+```yaml
+name: Performance Issue
+description: Report a performance-related issue
+title: "[PERFORMANCE] "
+labels: ["performance"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the issue
+      description: A clear and concise description of the performance issue.
+    validations:
+      required: true
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Performance metrics
+      description: Any relevant metrics (e.g., latency, throughput, memory usage).
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Details about your hardware, OS, and configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Steps to reproduce the performance issue.
+    validations:
+      required: true
+```
+
+### .github/ISSUE_TEMPLATE/research_question.yml
+```yaml
+name: Research Question
+description: Ask a question or propose a research discussion
+title: "[RESEARCH] "
+labels: ["research"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Research question
+      description: A clear and concise description of the question or discussion topic.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Background information or context for the question.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Any relevant papers, articles, or resources.
+    validations:
+      required: false
+```
+
+### .github/PULL_REQUEST_TEMPLATE.md
+```markdown
+# Pull Request
+
+## Description
+Provide a brief description of the changes in this PR.
+
+## Related Issue
+Link to the related issue (e.g., `#123`).
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Documentation update
+- [ ] Performance improvement
+- [ ] Other (please specify)
+
+## Checklist
+- [ ] Code follows PEP 8 and project style guidelines
+- [ ] Tests have been added/updated
+- [ ] Documentation has been updated
+- [ ] All tests pass (`make test`)
+- [ ] Linting passes (`make lint`)
+- [ ] Type checking passes (`mypy src tests`)
+- [ ] Coverage remains above 95%
+- [ ] Chaos tests pass (`make chaos`)
+
+## Additional Notes
+Any additional information or context for reviewers.
+```
+
+### .github/FUNDING.yml
+```yaml
+github: [xai-org]
+patreon: xaiorg
+open_collective: cognitive-orchestrator
+custom: ["https://www.buymeacoffee.com/xaiorg"]
+```
+
+### .github/renovate.json
+```json
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "dependencyDashboard": true,
+  "schedule": ["at any time"],
+  "packageRules": [
+    {
+      "matchPackagePatterns": ["*"],
+      "automerge": true,
+      "automergeType": "pr"
+    }
+  ]
+}
+```
+
+### src/CognitiveOrchestrator/__init__.py
+```python
+__version__ = "1.0.0"
+__all__ = [
+    "CognitiveOrchestrator",
+    "Agent",
+    "Result",
+    "OrchestratorConfig",
+    "OrchestrateCommand",
+    "InitializeCommand",
+    "OrchestrateRequest",
+    "OrchestrateResponse",
+    "Task",
+    "AgentConfig",
+    "CorrelationId"
+]
+
+from .domain.entities.orchestrator import CognitiveOrchestrator
+from .domain.entities.agent import Agent
+from .domain.entities.result import Result
+from .domain.value_objects.task import Task
+from .domain.value_objects.agent_config import AgentConfig
+from .domain.value_objects.correlation_id import CorrelationId
+from .application.dtos.orchestrate_request import OrchestrateRequest
+from .application.dtos.orchestrate_response import OrchestrateResponse
+from .application.commands.orchestrate_command import OrchestrateCommand
+from .application.commands.initialize_command import InitializeCommand
+```
+
+### src/CognitiveOrchestrator/domain/__init__.py
+```python
+from .entities.orchestrator import CognitiveOrchestrator
+from .entities.agent import Agent
+from .entities.result import Result
+from .value_objects.task import Task
+from .value_objects.agent_config import AgentConfig
+from .value_objects.correlation_id import CorrelationId
+from .interfaces.agent_repository import IAgentRepository
+from .interfaces.orchestrator_service import IOrchestratorService
+from .interfaces.cache_service import ICacheService
+from .interfaces.telemetry_service import ITelemetryService
+from .exceptions.business_rule_violation import BusinessRuleViolationException
+from .exceptions.infrastructure_error import InfrastructureError
+from .exceptions.validation_error import ValidationError
+```
+
+### src/CognitiveOrchestrator/domain/entities/result.py
+```python
+from dataclasses import dataclass
+from typing import TypeVar, Generic, Optional
+
+T = TypeVar("T")
+
+@dataclass
+class Result(Generic[T]):
+    """Generic result class for operation outcomes."""
+    is_success: bool
+    value: Optional[T] = None
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+
+    @staticmethod
+    def success(value: T) -> 'Result[T]':
+        return Result(is_success=True, value=value)
+
+    @staticmethod
+    def failure(error: str, error_code: str = "GENERAL_ERROR") -> 'Result[T]':
+        return Result(is_success=False, error=error, error_code=error_code)
+```
+
+### src/CognitiveOrchestrator/domain/entities/agent.py
+```python
+import logging
+from typing import Optional
+from dataclasses import dataclass
+from ..interfaces.agent_repository import IAgentRepository
+from ..value_objects.task import Task
+from ..value_objects.correlation_id import CorrelationId
+from .result import Result
+
+logger = logging.getLogger(__name__)
+
+class Agent:
+    """Domain entity representing a specialized language model agent."""
+    def __init__(self, config: 'AgentConfig', repository: IAgentRepository):
+        self.config = config
+        self.repository = repository
+        self.logger = logger
+
+    async def process(self, task: Task, correlation_id: CorrelationId) -> Result[str]:
+        """Process a task using the language model API."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                result = await self.repository.process_task(self.config, task, correlation_id)
+                self.logger.info(f"Task processed by {self.config.specialization}: {task.content}")
+                return result
+            except Exception as e:
+                self.logger.error(f"Error processing task: {str(e)}")
+                return Result.failure(f"Processing failed: {str(e)}", "AGENT_PROCESSING_ERROR")
+```
+
+### src/CognitiveOrchestrator/domain/entities/orchestrator.py
+```python
+import logging
+from typing import List, Optional
+from dataclasses import dataclass
+from ..value_objects.agent_config import AgentConfig
+from ..value_objects.correlation_id import CorrelationId
+from .result import Result
+from ..interfaces.orchestrator_service import IOrchestratorService
+from ..exceptions.business_rule_violation import BusinessRuleViolationException
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class OrchestratorConfig:
+    agents: List[AgentConfig]
+    redis_host: str
+    redis_port: int
+    log_level: str
+    telemetry_enabled: bool
+    max_concurrent_tasks: int
+    timeout_seconds: int
+
+class CognitiveOrchestrator:
+    """Domain entity for orchestrating cognitive tasks."""
+    def __init__(self, config: OrchestratorConfig, service: IOrchestratorService):
+        self.config = config
+        self.service = service
+        self.logger = logger
+
+    async def initialize(self):
+        """Initialize orchestrator and its agents."""
+        try:
+            await self.service.initialize(self.config)
+            self.logger.info("Orchestrator initialized")
+        except Exception as e:
+            self.logger.error(f"Initialization failed: {str(e)}")
+            raise
+
+    async def orchestrate(self, input_text: str, agent_specializations: Optional[List[str]] = None, filter_noise: bool = True) -> Result[str]:
+        """Orchestrate the processing of an input query."""
+        correlation_id = CorrelationId.generate()
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            self.logger.info(f"Orchestrating request: {input_text}")
+            try:
+                if not input_text.strip():
+                    raise BusinessRuleViolationException(
+                        message="Empty input provided",
+                        rule_code="INVALID_INPUT",
+                        context={"input_text": input_text}
+                    )
+                return await self.service.orchestrate(input_text, agent_specializations, filter_noise, correlation_id)
+            except BusinessRuleViolationException as e:
+                self.logger.error(f"Business rule violation: {str(e)}")
+                return Result.failure(f"Business rule violation: {str(e)}", e.rule_code)
+            except Exception as e:
+                self.logger.error(f"Orchestration failed: {str(e)}")
+                return Result.failure(f"Orchestration failed: {str(e)}", "ORCHESTRATION_ERROR")
+
+    async def close(self):
+        """Close all resources."""
+        try:
+            await self.service.close()
+            self.logger.info("Orchestrator closed")
+        except Exception as e:
+            self.logger.error(f"Close failed: {str(e)}")
+            raise
+```
+
+### src/CognitiveOrchestrator/domain/value_objects/task.py
+```python
+from dataclasses import dataclass
+from ..exceptions.validation_error import ValidationError
+
+@dataclass(frozen=True)
+class Task:
+    """Value object representing a task to be processed."""
+    content: str
+
+    def __post_init__(self):
+        if not self.content.strip():
+            raise ValidationError("Task content cannot be empty", "INVALID_TASK_CONTENT")
+```
+
+### src/CognitiveOrchestrator/domain/value_objects/agent_config.py
+```python
+from dataclasses import dataclass
+from typing import Optional
+from ..exceptions.validation_error import ValidationError
+
+@dataclass(frozen=True)
+class AgentConfig:
+    """Value object for agent configuration."""
+    specialization: str
+    api_endpoint: str
+    api_key: Optional[str] = None
+
+    def __post_init__(self):
+        if not self.specialization.strip():
+            raise ValidationError("Specialization cannot be empty", "INVALID_SPECIALIZATION")
+        if not self.api_endpoint.strip():
+            raise ValidationError("API endpoint cannot be empty", "INVALID_API_ENDPOINT")
+```
+
+### src/CognitiveOrchestrator/domain/value_objects/correlation_id.py
+```python
+from dataclasses import dataclass
+import uuid
+
+@dataclass(frozen=True)
+class CorrelationId:
+    """Value object for correlation ID."""
+    value: str
+
+    @staticmethod
+    def generate() -> 'CorrelationId':
+        return CorrelationId(str(uuid.uuid4()))
+```
+
+### src/CognitiveOrchestrator/domain/interfaces/agent_repository.py
+```python
+from abc import ABC, abstractmethod
+from ..entities.result import Result
+from ..value_objects.task import Task
+from ..value_objects.agent_config import AgentConfig
+from ..value_objects.correlation_id import CorrelationId
+
+class IAgentRepository(ABC):
+    """Interface for agent repository operations."""
+    @abstractmethod
+    async def process_task(self, config: AgentConfig, task: Task, correlation_id: CorrelationId) -> Result[str]:
+        pass
+```
+
+### src/CognitiveOrchestrator/domain/interfaces/orchestrator_service.py
+```python
+from abc import ABC, abstractmethod
+from typing import List, Optional
+from ..entities.result import Result
+from ..entities.orchestrator import OrchestratorConfig
+from ..value_objects.correlation_id import CorrelationId
+
+class IOrchestratorService(ABC):
+    """Interface for orchestrator service operations."""
+    @abstractmethod
+    async def initialize(self, config: OrchestratorConfig):
+        pass
+
+    @abstractmethod
+    async def orchestrate(self, input_text: str, agent_specializations: Optional[List[str]], filter_noise: bool, correlation_id: CorrelationId) -> Result[str]:
+        pass
+
+    @abstractmethod
+    async def close(self):
+        pass
+```
+
+### src/CognitiveOrchestrator/domain/interfaces/cache_service.py
+```python
+from abc import ABC, abstractmethod
+from typing import Optional, TypeVar, Generic
+from ..value_objects.correlation_id import CorrelationId
+
+T = TypeVar("T")
+
+class ICacheService(ABC):
+    """Interface for caching operations."""
+    @abstractmethod
+    async def get(self, key: str, correlation_id: CorrelationId) -> Optional[T]:
+        pass
+
+    @abstractmethod
+    async def set(self, key: str, value: T, ttl: int, correlation_id: CorrelationId) -> None:
+        pass
+```
+
+### src/CognitiveOrchestrator/domain/interfaces/telemetry_service.py
+```python
+from abc import ABC, abstractmethod
+from typing import Dict
+from ..value_objects.correlation_id import CorrelationId
+
+class ITelemetryService(ABC):
+    """Interface for telemetry operations."""
+    @abstractmethod
+    async def track_event(self, event_name: str, properties: Dict[str, str], correlation_id: CorrelationId):
+        pass
+
+    @abstractmethod
+    async def track_metric(self, metric_name: str, value: float, tags: Dict[str, str], correlation_id: CorrelationId):
+        pass
+```
+
+### src/CognitiveOrchestrator/domain/exceptions/business_rule_violation.py
+```python
+from typing import Dict, Any
+
+class BusinessRuleViolationException(Exception):
+    """Exception for business rule violations."""
+    def __init__(self, message: str, rule_code: str, context: Dict[str, Any] = None):
+        super().__init__(message)
+        self.rule_code = rule_code
+        self.context = context or {"rule_code": rule_code}
+```
+
+### src/CognitiveOrchestrator/domain/exceptions/infrastructure_error.py
+```python
+from typing import Dict, Any
+
+class InfrastructureError(Exception):
+    """Exception for infrastructure-related errors."""
+    def __init__(self, message: str, error_code: str, context: Dict[str, Any] = None):
+        super().__init__(message)
+        self.error_code = error_code
+        self.context = context or {"error_code": error_code}
+```
+
+### src/CognitiveOrchestrator/domain/exceptions/validation_error.py
+```python
+from typing import Dict, Any
+
+class ValidationError(Exception):
+    """Exception for input validation errors."""
+    def __init__(self, message: str, error_code: str, context: Dict[str, Any] = None):
+        super().__init__(message)
+        self.error_code = error_code
+        self.context = context or {"error_code": error_code}
+```
+
+### src/CognitiveOrchestrator/application/__init__.py
+```python
+from .services.orchestrator_service import OrchestratorService, OrchestratorConfig
+from .services.coordinator_service import CoordinatorService
+from .services.noise_filter_service import NoiseFilterService
+from .services.interpreter_service import InterpreterService
+from .services.synthesizer_service import SynthesizerService
+from .commands.orchestrate_command import OrchestrateCommand
+from .commands.initialize_command import InitializeCommand
+from .dtos.orchestrate_request import OrchestrateRequest
+from .dtos.orchestrate_response import OrchestrateResponse
+from .validators.orchestrate_validator import OrchestrateValidator
+from .validators.agent_config_validator import AgentConfigValidator
+from .handlers.orchestrate_handler import OrchestrateHandler
+from .handlers.initialize_handler import InitializeHandler
+from .events.task_processed_event import TaskProcessedEvent
+from .events.orchestration_completed_event import OrchestrationCompletedEvent
+```
+
+### src/CognitiveOrchestrator/application/services/orchestrator_service.py
+```python
+import logging
+import yaml
+from typing import List, Optional
+from dataclasses import dataclass
+from ...domain.entities.orchestrator import OrchestratorConfig
+from ...domain.entities.agent import Agent
+from ...domain.entities.result import Result
+from ...domain.value_objects.task import Task
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.interfaces.orchestrator_service import IOrchestratorService
+from ...domain.interfaces.cache_service import ICacheService
+from ...domain.interfaces.telemetry_service import ITelemetryService
+from ...domain.exceptions.business_rule_violation import BusinessRuleViolationException
+from ...infrastructure.repositories.agent_repository import AgentRepository
+from .coordinator_service import CoordinatorService
+from .noise_filter_service import NoiseFilterService
+from .interpreter_service import InterpreterService
+from .synthesizer_service import SynthesizerService
+from ..commands.orchestrate_command import OrchestrateCommand
+from ..commands.initialize_command import InitializeCommand
+from ..handlers.orchestrate_handler import OrchestrateHandler
+from ..handlers.initialize_handler import InitializeHandler
+
+logger = logging.getLogger(__name__)
+
+@dataclass
+class OrchestratorConfig:
+    agents: List['AgentConfig']
+    redis_host: str
+    redis_port: int
+    log_level: str
+    telemetry_enabled: bool
+    max_concurrent_tasks: int
+    timeout_seconds: int
+
+    @classmethod
+    def from_yaml(cls, path: str) -> 'OrchestratorConfig':
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f)
+        agents = [AgentConfig(**agent) for agent in data['orchestrator']['agents']]
+        return cls(
+            agents=agents,
+            redis_host=data['orchestrator']['cache']['host'],
+            redis_port=data['orchestrator']['cache']['port'],
+            log_level=data['orchestrator']['logging']['level'],
+            telemetry_enabled=data['orchestrator']['telemetry']['enabled'],
+            max_concurrent_tasks=data['orchestrator']['concurrency']['max_tasks'],
+            timeout_seconds=data['orchestrator']['concurrency']['timeout_seconds']
+        )
+
+class OrchestratorService(IOrchestratorService):
+    """Service for orchestrating cognitive tasks."""
+    def __init__(self, cache_service: ICacheService, telemetry_service: ITelemetryService):
+        self.cache_service = cache_service
+        self.telemetry_service = telemetry_service
+        self.agents: List[Agent] = []
+        self.coordinator = CoordinatorService()
+        self.noise_filter = NoiseFilterService()
+        self.interpreter = InterpreterService()
+        self.synthesizer = SynthesizerService()
+        self.orchestrate_handler = OrchestrateHandler(
+            coordinator=self.coordinator,
+            noise_filter=self.noise_filter,
+            interpreter=self.interpreter,
+            synthesizer=self.synthesizer,
+            cache_service=self.cache_service,
+            telemetry_service=self.telemetry_service
+        )
+        self.initialize_handler = InitializeHandler(self)
+        self.logger = logger
+
+    async def initialize(self, config: OrchestratorConfig):
+        """Initialize orchestrator and its agents."""
+        command = InitializeCommand(config)
+        await self.initialize_handler.handle(command)
+
+    async def orchestrate(self, input_text: str, agent_specializations: Optional[List[str]], filter_noise: bool, correlation_id: CorrelationId) -> Result[str]:
+        """Orchestrate the processing of an input query."""
+        command = OrchestrateCommand(input_text, agent_specializations, filter_noise, correlation_id)
+        return await self.orchestrate_handler.handle(command)
+
+    async def close(self):
+        """Close all resources."""
+        for agent in self.agents:
+            await agent.repository.close()
+        self.logger.info("Orchestrator resources closed")
+```
+
+### src/CognitiveOrchestrator/application/services/coordinator_service.py
+```python
+import logging
+import asyncio
+from typing import List, Optional
+from ...domain.entities.agent import Agent
+from ...domain.entities.result import Result
+from ...domain.value_objects.task import Task
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.exceptions.business_rule_violation import BusinessRuleViolationException
+
+logger = logging.getLogger(__name__)
+
+class CoordinatorService:
+    """Service for coordinating task distribution among agents."""
+    async def distribute(self, task: Task, agents: List[Agent], specializations: Optional[List[str]], correlation_id: CorrelationId) -> Result[List[str]]:
+        """Distribute task to relevant agents."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                selected_agents = (
+                    [agent for agent in agents if agent.config.specialization in specializations]
+                    if specializations
+                    else agents
+                )
+
+                if not selected_agents:
+                    logger.warning("No agents selected for task")
+                    raise BusinessRuleViolationException(
+                        message="No agents available",
+                        rule_code="NO_AGENTS_AVAILABLE"
+                    )
+
+                tasks = [agent.process(task, correlation_id) for agent in selected_agents]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                valid_results = []
+                for result in results:
+                    if isinstance(result, Result) and result.is_success:
+                        valid_results.append(result.value)
+                    else:
+                        logger.warning(f"Agent failed: {result.error if isinstance(result, Result) else str(result)}")
+
+                return Result.success(valid_results) if valid_results else Result.failure(
+                    "No valid results",
+                    "NO_VALID_RESULTS"
+                )
+            except BusinessRuleViolationException as e:
+                logger.error(f"Business rule violation: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Distribution failed: {str(e)}")
+                return Result.failure(f"Distribution failed: {str(e)}", "DISTRIBUTION_ERROR")
+```
+
+### src/CognitiveOrchestrator/application/services/noise_filter_service.py
+```python
+import logging
+from typing import List
+from ...domain.entities.result import Result
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.exceptions.validation_error import ValidationError
+
+logger = logging.getLogger(__name__)
+
+class NoiseFilterService:
+    """Service for filtering out irrelevant or low-quality results."""
+    def __init__(self, min_length: int = 10, banned_words: List[str] = ["error", "failed", "exception"]):
+        self.min_length = min_length
+        self.banned_words = [word.lower() for word in banned_words]
+
+    async def filter(self, results: List[str], correlation_id: CorrelationId) -> Result[List[str]]:
+        """Apply noise filtering to agent results."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                filtered = []
+                for result in results:
+                    if len(result) >= self.min_length and not any(word in result.lower() for word in self.banned_words):
+                        filtered.append(result)
+                    else:
+                        logger.warning(f"Filtered out noisy result: {result}")
+
+                if not filtered:
+                    raise ValidationError(
+                        message="All results filtered out",
+                        error_code="NO_VALID_RESULTS",
+                        context={"results_count": len(results)}
+                    )
+                return Result.success(filtered)
+            except ValidationError as e:
+                logger.error(f"Validation error: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Noise filtering failed: {str(e)}")
+                return Result.failure(f"Noise filtering failed: {str(e)}", "NOISE_FILTERING_ERROR")
+```
+
+### src/CognitiveOrchestrator/application/services/interpreter_service.py
+```python
+import logging
+from transformers import pipeline
+from ...domain.entities.result import Result
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.exceptions.validation_error import ValidationError
+
+logger = logging.getLogger(__name__)
+
+class InterpreterService:
+    """Service for interpreting vague or chaotic input queries."""
+    def __init__(self):
+        self.classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+        self.labels = ["analysis", "generation", "summarization", "translation", "question_answering"]
+
+    async def interpret(self, input_text: str, correlation_id: CorrelationId) -> Result[str]:
+        """Interpret the input query by classifying it into predefined categories."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                if not input_text.strip():
+                    raise ValidationError(
+                        message="Empty input provided",
+                        error_code="INVALID_INPUT",
+                        context={"input_text": input_text}
+                    )
+
+                result = self.classifier(input_text, candidate_labels=self.labels)
+                interpreted = result['labels'][0]
+                confidence = result['scores'][0]
+                logger.info(f"Interpreted input: {input_text} as {interpreted} with confidence {confidence:.2f}")
+                return Result.success(interpreted)
+            except ValidationError as e:
+                logger.error(f"Validation error: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Interpretation failed: {str(e)}")
+                return Result.failure(f"Interpretation failed: {str(e)}", "INTERPRETATION_ERROR")
+```
+
+### src/CognitiveOrchestrator/application/services/synthesizer_service.py
+```python
+import logging
+from typing import List
+from ...domain.entities.result import Result
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.exceptions.validation_error import ValidationError
+
+logger = logging.getLogger(__name__)
+
+class SynthesizerService:
+    """Service for synthesizing agent results into a coherent output."""
+    async def synthesize(self, results: List[str], correlation_id: CorrelationId) -> Result[str]:
+        """Synthesize results into a single output."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                if not results:
+                    raise ValidationError(
+                        message="No results to synthesize",
+                        error_code="NO_RESULTS",
+                        context={"results_count": 0}
+                    )
+
+                synthesized = "; ".join(results)
+                logger.info(f"Synthesized output: {synthesized}")
+                return Result.success(synthesized)
+            except ValidationError as e:
+                logger.error(f"Validation error: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Synthesis failed: {str(e)}")
+                return Result.failure(f"Synthesis failed: {str(e)}", "SYNTHESIS_ERROR")
+```
+
+### src/CognitiveOrchestrator/application/commands/__init__.py
+```python
+from .orchestrate_command import OrchestrateCommand
+from .initialize_command import InitializeCommand
+```
+
+### src/CognitiveOrchestrator/application/commands/orchestrate_command.py
+```python
+from dataclasses import dataclass
+from typing import List, Optional
+from ...domain.value_objects.correlation_id import CorrelationId
+
+@dataclass
+class OrchestrateCommand:
+    """Command for orchestrating a cognitive task."""
+    input_text: str
+    agent_specializations: Optional[List[str]]
+    filter_noise: bool
+    correlation_id: CorrelationId
+```
+
+### src/CognitiveOrchestrator/application/commands/initialize_command.py
+```python
+from dataclasses import dataclass
+from ...domain.entities.orchestrator import OrchestratorConfig
+
+@dataclass
+class InitializeCommand:
+    """Command for initializing the orchestrator."""
+    config: OrchestratorConfig
+```
+
+### src/CognitiveOrchestrator/application/dtos/__init__.py
+```python
+from .orchestrate_request import OrchestrateRequest
+from .orchestrate_response import OrchestrateResponse
+```
+
+### src/CognitiveOrchestrator/application/dtos/orchestrate_request.py
+```python
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
+class OrchestrateRequest(BaseModel):
+    """DTO for orchestration request."""
+    input_text: str = Field(..., min_length=1)
+    agent_specializations: Optional[List[str]] = None
+    filter_noise: bool = True
+```
+
+### src/CognitiveOrchestrator/application/dtos/orchestrate_response.py
+```python
+from pydantic import BaseModel
+from typing import Optional
+
+class OrchestrateResponse(BaseModel):
+    """DTO for orchestration response."""
+    success: bool
+    result: Optional[str] = None
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+```
+
+### src/CognitiveOrchestrator/application/validators/__init__.py
+```python
+from .orchestrate_validator import OrchestrateValidator
+from .agent_config_validator import AgentConfigValidator
+```
+
+### src/CognitiveOrchestrator/application/validators/orchestrate_validator.py
+```python
+from pydantic import BaseModel, ValidationError as PydanticValidationError
+from ...domain.exceptions.validation_error import ValidationError
+from ..dtos.orchestrate_request import OrchestrateRequest
+
+class OrchestrateValidator:
+    """Validator for orchestration requests."""
+    @staticmethod
+    def validate(request: OrchestrateRequest) -> None:
+        try:
+            OrchestrateRequest.model_validate(request)
+        except PydanticValidationError as e:
+            raise ValidationError(
+                message=f"Validation failed: {str(e)}",
+                error_code="INVALID_REQUEST",
+                context={"errors": e.errors()}
+            )
+```
+
+### src/CognitiveOrchestrator/application/validators/agent_config_validator.py
+```python
+from pydantic import BaseModel, ValidationError as PydanticValidationError
+from ...domain.value_objects.agent_config import AgentConfig
+from ...domain.exceptions.validation_error import ValidationError
+
+class AgentConfigValidator:
+    """Validator for agent configurations."""
+    @staticmethod
+    def validate(config: AgentConfig) -> None:
+        try:
+            AgentConfig(**config.__dict__)
+        except PydanticValidationError as e:
+            raise ValidationError(
+                message=f"Validation failed: {str(e)}",
+                error_code="INVALID_AGENT_CONFIG",
+                context={"errors": e.errors()}
+            )
+```
+
+### src/CognitiveOrchestrator/application/handlers/__init__.py
+```python
+from .orchestrate_handler import OrchestrateHandler
+from .initialize_handler import InitializeHandler
+```
+
+### src/CognitiveOrchestrator/application/handlers/orchestrate_handler.py
+```python
+import logging
+from typing import List, Optional
+from ...domain.entities.result import Result
+from ...domain.value_objects.task import Task
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.exceptions.business_rule_violation import BusinessRuleViolationException
+from ...domain.exceptions.validation_error import ValidationError
+from ..services.coordinator_service import CoordinatorService
+from ..services.noise_filter_service import NoiseFilterService
+from ..services.interpreter_service import InterpreterService
+from ..services.synthesizer_service import SynthesizerService
+from ..commands.orchestrate_command import OrchestrateCommand
+from ...domain.interfaces.cache_service import ICacheService
+from ...domain.interfaces.telemetry_service import ITelemetryService
+
+logger = logging.getLogger(__name__)
+
+class OrchestrateHandler:
+    """Handler for processing orchestration commands."""
+    def __init__(
+        self,
+        coordinator: CoordinatorService,
+        noise_filter: NoiseFilterService,
+        interpreter: InterpreterService,
+        synthesizer: SynthesizerService,
+        cache_service: ICacheService,
+        telemetry_service: ITelemetryService
+    ):
+        self.coordinator = coordinator
+        self.noise_filter = noise_filter
+        self.interpreter = interpreter
+        self.synthesizer = synthesizer
+        self.cache_service = cache_service
+        self.telemetry_service = telemetry_service
+        self.logger = logger
+
+    async def handle(self, command: OrchestrateCommand) -> Result[str]:
+        """Handle the orchestration command."""
+        with logging.contextualize(correlation_id=str(command.correlation_id)):
+            try:
+                # Check cache
+                cache_key = f"orchestrate:{command.input_text}:{command.agent_specializations}:{command.filter_noise}"
+                cached_result = await self.cache_service.get(cache_key, command.correlation_id)
+                if cached_result:
+                    await self.telemetry_service.track_event(
+                        "CacheHit",
+                        {"input": command.input_text},
+                        command.correlation_id
+                    )
+                    return Result.success(cached_result)
+
+                # Interpret input
+                task = Task(content=command.input_text)
+                interpreted = await self.interpreter.interpret(command.input_text, command.correlation_id)
+                if not interpreted.is_success:
+                    raise BusinessRuleViolationException(
+                        message=interpreted.error,
+                        rule_code=interpreted.error_code,
+                        context={"input_text": command.input_text}
+                    )
+
+                # Coordinate agents
+                agent_tasks = await self.coordinator.distribute(
+                    task,
+                    self.coordinator.agents,
+                    command.agent_specializations,
+                    command.correlation_id
+                )
+                if not agent_tasks.is_success:
+                    raise BusinessRuleViolationException(
+                        message=agent_tasks.error,
+                        rule_code=agent_tasks.error_code,
+                        context={"specializations": command.agent_specializations}
+                    )
+
+                # Filter noise
+                filtered = await self.noise_filter.filter(agent_tasks.value, command.correlation_id) if command.filter_noise else agent_tasks
+                if not filtered.is_success:
+                    raise BusinessRuleViolationException(
+                        message=filtered.error,
+                        rule_code=filtered.error_code,
+                        context={"results_count": len(agent_tasks.value)}
+                    )
+
+                # Synthesize results
+                synthesized = await self.synthesizer.synthesize(filtered.value, command.correlation_id)
+                if not synthesized.is_success:
+                    raise BusinessRuleViolationException(
+                        message=synthesized.error,
+                        rule_code=synthesized.error_code,
+                        context={"filtered_results": filtered.value}
+                    )
+
+                # Cache result
+                await self.cache_service.set(cache_key, synthesized.value, ttl=3600, correlation_id=command.correlation_id)
+                await self.telemetry_service.track_event(
+                    "OrchestrationCompleted",
+                    {"input": command.input_text, "result_length": len(synthesized.value)},
+                    command.correlation_id
+                )
+                return synthesized
+            except (BusinessRuleViolationException, ValidationError) as e:
+                await self.telemetry_service.track_event(
+                    "OrchestrationFailed",
+                    {"error": str(e), "error_code": e.error_code},
+                    command.correlation_id
+                )
+                raise
+            except Exception as e:
+                await self.telemetry_service.track_event(
+                    "OrchestrationFailed",
+                    {"error": str(e), "error_code": "UNEXPECTED_ERROR"},
+                    command.correlation_id
+                )
+                return Result.failure(f"Unexpected error: {str(e)}", "UNEXPECTED_ERROR")
+```
+
+### src/CognitiveOrchestrator/application/handlers/initialize_handler.py
+```python
+import logging
+from typing import List
+from ...domain.entities.agent import Agent
+from ...domain.value_objects.agent_config import AgentConfig
+from ...infrastructure.repositories.agent_repository import AgentRepository
+from ..commands.initialize_command import InitializeCommand
+from ..validators.agent_config_validator import AgentConfigValidator
+
+logger = logging.getLogger(__name__)
+
+class InitializeHandler:
+    """Handler for processing initialization commands."""
+    def __init__(self, orchestrator_service: 'OrchestratorService'):
+        self.orchestrator_service = orchestrator_service
+        self.logger = logger
+
+    async def handle(self, command: InitializeCommand):
+        """Handle the initialization command."""
+        try:
+            for agent_config in command.config.agents:
+                AgentConfigValidator.validate(agent_config)
+                repository = AgentRepository()
+                self.orchestrator_service.agents.append(Agent(agent_config, repository))
+                await repository.initialize()
+            self.orchestrator_service.coordinator.agents = self.orchestrator_service.agents
+            self.logger.info(f"Initialized {len(self.orchestrator_service.agents)} agents")
+        except Exception as e:
+            self.logger.error(f"Initialization failed: {str(e)}")
+            raise
+```
+
+### src/CognitiveOrchestrator/application/events/__init__.py
+```python
+from .task_processed_event import TaskProcessedEvent
+from .orchestration_completed_event import OrchestrationCompletedEvent
+```
+
+### src/CognitiveOrchestrator/application/events/task_processed_event.py
+```python
+from dataclasses import dataclass
+from ...domain.value_objects.correlation_id import CorrelationId
+
+@dataclass
+class TaskProcessedEvent:
+    """Event for task processing completion."""
+    agent_specialization: str
+    task_content: str
+    result: str
+    correlation_id: CorrelationId
+```
+
+### src/CognitiveOrchestrator/application/events/orchestration_completed_event.py
+```python
+from dataclasses import dataclass
+from ...domain.value_objects.correlation_id import CorrelationId
+
+@dataclass
+class OrchestrationCompletedEvent:
+    """Event for orchestration completion."""
+    input_text: str
+    result: str
+    correlation_id: CorrelationId
+```
+
+### src/CognitiveOrchestrator/infrastructure/__init__.py
+```python
+from .repositories.agent_repository import AgentRepository
+from .external.language_model_client import LanguageModelClient
+from .caching.redis_cache import RedisCache
+from .logging.structured_logging import setup_logging
+from .telemetry.telemetry_service import TelemetryService
+from .health.health_check import HealthCheck
+```
+
+### src/CognitiveOrchestrator/infrastructure/repositories/agent_repository.py
+```python
+import aiohttp
+import logging
+from typing import Optional
+from ...domain.interfaces.agent_repository import IAgentRepository
+from ...domain.value_objects.task import Task
+from ...domain.value_objects.agent_config import AgentConfig
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.entities.result import Result
+from ...domain.exceptions.infrastructure_error import InfrastructureError
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+logger = logging.getLogger(__name__)
+
+class AgentRepository(IAgentRepository):
+    """Repository for interacting with language model APIs."""
+    def __init__(self):
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def initialize(self):
+        """Initialize the HTTP session."""
+        self.session = aiohttp.ClientSession()
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    async def process_task(self, config: AgentConfig, task: Task, correlation_id: CorrelationId) -> Result[str]:
+        """Process a task using the language model API."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            if not self.session:
+                raise InfrastructureError(
+                    message="Agent repository not initialized",
+                    error_code="REPOSITORY_NOT_INITIALIZED"
+                )
+
+            try:
+                headers = {"Authorization": f"Bearer {config.api_key}"} if config.api_key else {}
+                async with self.session.post(
+                    config.api_endpoint,
+                    json={"input": task.content},
+                    headers=headers
+                ) as response:
+                    if response.status != 200:
+                        logger.error(f"API request failed: {response.status}")
+                        raise InfrastructureError(
+                            message=f"API request failed: {response.status}",
+                            error_code="API_REQUEST_FAILED"
+                        )
+                    
+                    data = await response.json()
+                    logger.info(f"Task processed by {config.specialization}: {task.content}")
+                    return Result.success(data.get("output", ""))
+            except Exception as e:
+                logger.error(f"Error processing task: {str(e)}")
+                raise InfrastructureError(
+                    message=f"Processing failed: {str(e)}",
+                    error_code="PROCESSING_ERROR"
+                )
+
+    async def close(self):
+        """Close the HTTP session."""
+        if self.session:
+            await self.session.close()
+            self.session = None
+```
+
+### src/CognitiveOrchestrator/infrastructure/external/language_model_client.py
+```python
+import aiohttp
+import logging
+from typing import Optional
+from ...domain.entities.result import Result
+from ...domain.value_objects.task import Task
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.exceptions.infrastructure_error import InfrastructureError
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+logger = logging.getLogger(__name__)
+
+class LanguageModelClient:
+    """Client for interacting with external language model APIs."""
+    def __init__(self, api_endpoint: str, api_key: Optional[str] = None):
+        self.api_endpoint = api_endpoint
+        self.api_key = api_key
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def initialize(self):
+        """Initialize the HTTP session."""
+        self.session = aiohttp.ClientSession()
+
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    async def process(self, task: Task, correlation_id: CorrelationId) -> Result[str]:
+        """Process a task using the language model API."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            if not self.session:
+                raise InfrastructureError(
+                    message="Language model client not initialized",
+                    error_code="CLIENT_NOT_INITIALIZED"
+                )
+
+            try:
+                headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+                async with self.session.post(
+                    self.api_endpoint,
+                    json={"input": task.content},
+                    headers=headers
+                ) as response:
+                    if response.status != 200:
+                        logger.error(f"API request failed: {response.status}")
+                        raise InfrastructureError(
+                            message=f"API request failed: {response.status}",
+                            error_code="API_REQUEST_FAILED"
+                        )
+                    
+                    data = await response.json()
+                    logger.info(f"Task processed: {task.content}")
+                    return Result.success(data.get("output", ""))
+            except Exception as e:
+                logger.error(f"Error processing task: {str(e)}")
+                raise InfrastructureError(
+                    message=f"Processing failed: {str(e)}",
+                    error_code="PROCESSING_ERROR"
+                )
+
+    async def close(self):
+        """Close the HTTP session."""
+        if self.session:
+            await self.session.close()
+            self.session = None
+```
+
+### src/CognitiveOrchestrator/infrastructure/caching/redis_cache.py
+```python
+import logging
+import redis.asyncio as redis
+from typing import Optional, TypeVar, Generic
+from ...domain.interfaces.cache_service import ICacheService
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...domain.exceptions.infrastructure_error import InfrastructureError
+
+T = TypeVar("T")
+
+logger = logging.getLogger(__name__)
+
+class RedisCache(ICacheService):
+    """Redis-based caching service."""
+    def __init__(self, host: str, port: int):
+        self.client = redis.Redis(host=host, port=port, decode_responses=True)
+        self.logger = logger
+
+    async def get(self, key: str, correlation_id: CorrelationId) -> Optional[T]:
+        """Retrieve a value from the cache."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                value = await self.client.get(key)
+                self.logger.info(f"Cache get: {key}, value: {value}")
+                return value
+            except redis.RedisError as e:
+                self.logger.error(f"Cache get failed: {str(e)}")
+                raise InfrastructureError(
+                    message=f"Cache get failed: {str(e)}",
+                    error_code="CACHE_ERROR"
+                )
+
+    async def set(self, key: str, value: T, ttl: int, correlation_id: CorrelationId) -> None:
+        """Store a value in the cache with TTL."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                await self.client.setex(key, ttl, value)
+                self.logger.info(f"Cache set: {key}, ttl: {ttl}")
+            except redis.RedisError as e:
+                self.logger.error(f"Cache set failed: {str(e)}")
+                raise InfrastructureError(
+                    message=f"Cache set failed: {str(e)}",
+                    error_code="CACHE_ERROR"
+                )
+```
+
+### src/CognitiveOrchestrator/infrastructure/logging/structured_logging.py
+```python
+import logging
+import logging.config
+import yaml
+from pathlib import Path
+
+def setup_logging(config_path: str = "configs/logging.yaml"):
+    """Configure structured logging."""
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        logging.config.dictConfig(config)
+    except Exception as e:
+        logging.basicConfig(level=logging.INFO)
+        logging.error(f"Failed to load logging config: {str(e)}")
+```
+
+### src/CognitiveOrchestrator/infrastructure/telemetry/telemetry_service.py
+```python
+import logging
+from typing import Dict
+from ...domain.interfaces.telemetry_service import ITelemetryService
+from ...domain.value_objects.correlation_id import CorrelationId
+
+logger = logging.getLogger(__name__)
+
+class TelemetryService(ITelemetryService):
+    """Service for collecting telemetry data."""
+    async def track_event(self, event_name: str, properties: Dict[str, str], correlation_id: CorrelationId):
+        """Track an event with properties."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            logger.info(f"Event tracked: {event_name}, properties: {properties}")
+
+    async def track_metric(self, metric_name: str, value: float, tags: Dict[str, str], correlation_id: CorrelationId):
+        """Track a metric with value and tags."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            logger.info(f"Metric tracked: {metric_name}, value: {value}, tags: {tags}")
+```
+
+### src/CognitiveOrchestrator/infrastructure/health/health_check.py
+```python
+import logging
+from typing import Dict
+from ...domain.entities.result import Result
+from ...domain.value_objects.correlation_id import CorrelationId
+
+logger = logging.getLogger(__name__)
+
+class HealthCheck:
+    """Service for performing health checks."""
+    def __init__(self, dependencies: Dict[str, bool]):
+        self.dependencies = dependencies
+        self.logger = logger
+
+    async def check(self, correlation_id: CorrelationId) -> Result[Dict[str, bool]]:
+        """Perform a health check on dependencies."""
+        with logging.contextualize(correlation_id=str(correlation_id)):
+            try:
+                self.logger.info("Performing health check")
+                return Result.success(self.dependencies)
+            except Exception as e:
+                self.logger.error(f"Health check failed: {str(e)}")
+                return Result.failure(f"Health check failed: {str(e)}", "HEALTH_CHECK_ERROR")
+```
+
+### src/CognitiveOrchestrator/presentation/__init__.py
+```python
+from .api.endpoints import app
+from .api.middleware import LoggingMiddleware
+```
+
+### src/CognitiveOrchestrator/presentation/api/__init__.py
+```python
+from .endpoints import app
+from .middleware import LoggingMiddleware
+```
+
+### src/CognitiveOrchestrator/presentation/api/endpoints.py
+```python
+from fastapi import FastAPI, HTTPException, Depends
+from ...application.dtos.orchestrate_request import OrchestrateRequest
+from ...application.dtos.orchestrate_response import OrchestrateResponse
+from ...application.services.orchestrator_service import OrchestratorService
+from ...application.validators.orchestrate_validator import OrchestrateValidator
+from ...domain.value_objects.correlation_id import CorrelationId
+from ...infrastructure.caching.redis_cache import RedisCache
+from ...infrastructure.telemetry.telemetry_service import TelemetryService
+
+app = FastAPI(title="CognitiveOrchestrator API")
+
+async def get_orchestrator_service():
+    config = OrchestratorService.OrchestratorConfig.from_yaml("configs/orchestrator.yaml")
+    cache_service = RedisCache(config.redis_host, config.redis_port)
+    telemetry_service = TelemetryService()
+    service = OrchestratorService(cache_service, telemetry_service)
+    await service.initialize(config)
+    try:
+        yield service
+    finally:
+        await service.close()
+
+@app.post("/orchestrate", response_model=OrchestrateResponse)
+async def orchestrate(request: OrchestrateRequest, service: OrchestratorService = Depends(get_orchestrator_service)):
+    """Orchestrate a cognitive task."""
+    try:
+        OrchestrateValidator.validate(request)
+        result = await service.orchestrate(
+            input_text=request.input_text,
+            agent_specializations=request.agent_specializations,
+            filter_noise=request.filter_noise,
+            correlation_id=CorrelationId.generate()
+        )
+       救
+
+System: * Today's date and time is 03:15 PM EEST on Thursday, July 03, 2025.
