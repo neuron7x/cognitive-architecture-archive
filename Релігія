@@ -1,0 +1,440 @@
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
+from dataclasses import dataclass
+from typing import NamedTuple, Optional, List
+from pathlib import Path
+import json
+from sklearn.metrics import f1_score, roc_auc_score
+from pydantic import BaseModel, validator
+import logging
+
+# Конфігурація з валідацією
+class ModelConfig(BaseModel):
+    neuro_feature_size: int = 128
+    psych_feature_size: int = 64
+    text_vocab_size: int = 15000
+    hidden_size: int = 1024
+    num_layers: int = 12
+    num_heads: int = 16
+    dropout: float = 0.05
+    max_seq_length: int = 256
+    output_size: int = 1
+    learning_rate: float = 5e-5
+    batch_size: int = 64
+    epochs: int = 20
+    grad_clip: float = 0.5
+
+    @validator('neuro_feature_size', 'psych_feature_size', 'hidden_size', 'num_layers', 'num_heads')
+    def check_positive(cls, v):
+        if v <= 0:
+            raise ValueError("Must be positive")
+        return v
+
+    @validator('dropout', 'learning_rate')
+    def check_range(cls, v):
+        if not 0 <= v <= 1:
+            raise ValueError("Must be between 0 and 1")
+        return v
+
+# Дані
+class InputData(NamedTuple):
+    neuro: np.ndarray  # [batch, seq_len, neuro_feature_size]
+    psych: np.ndarray  # [batch, psych_feature_size]
+    text: np.ndarray   # [batch, seq_len]
+    text_mask: np.ndarray  # [batch, seq_len]
+    label: np.ndarray  # [batch]
+
+class ReligiosityScore(float):
+    def __new__(cls, value: float):
+        if not 0 <= value <= 1:
+            raise ValueError("Score must be [0,1]")
+        return super().__new__(cls, value)
+
+# TCN для нейроданих
+class TemporalConvNet(nn.Module):
+    def __init__(self, input_size: int, output_size: int):
+        super().__init__()
+        self.conv1 = nn.Conv1d(input_size, output_size, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv1d(output_size, output_size, kernel_size=3, padding=1)
+        self.norm = nn.LayerNorm(output_size)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)
+        x = F.gelu(self.conv1(x))
+        x = F.gelu(self.conv2(x))
+        x = x.transpose(1, 2)
+        return self.norm(x)
+
+# Gated Cross-Modal Attention
+class GatedCrossModalAttention(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int, dropout: float):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = hidden_size // num_heads
+        self.scale = self.head_dim ** -0.5
+        self.query = nn.Linear(hidden_size, hidden_size)
+        self.key = nn.Linear(hidden_size, hidden_size)
+        self.value = nn.Linear(hidden_size, hidden_size)
+        self.gate = nn.Sequential(
+            nn.Linear(hidden_size * 2, hidden_size),
+            nn.Sigmoid()
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.out = nn.Linear(hidden_size, hidden_size)
+        self.neuro_tcn = TemporalConvNet(hidden_size, hidden_size)
+    
+    def forward(self, neuro: torch.Tensor, psych: torch.Tensor, text: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+        batch_size, seq_len, hidden_size = text.size()
+        
+        # Обробка нейроданих через TCN
+        neuro = self.neuro_tcn(neuro)
+        
+        # Attention
+        q = self.query(text).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.key(text).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.value(text).view(batch_size, seq_len, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        # Гейт для нейро та псих даних
+        fused = torch.cat([neuro.mean(dim=1), psych], dim=-1)
+        gate = self.gate(fused).unsqueeze(1).unsqueeze(2)
+        
+        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        scores = scores * gate
+        
+        if mask is not None:
+            scores = scores.masked_fill(mask.unsqueeze(1).unsqueeze(2) == 0, float('-inf'))
+        
+        attn = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+        context = torch.matmul(attn, v).transpose(1, 2).contiguous().view(batch_size, seq_len, hidden_size)
+        return self.out(context)
+
+# Трансформер
+class ReligiosityTransformer(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.config = config
+        self.neuro_emb = nn.Linear(config.neuro_feature_size, config.hidden_size)
+        self.psych_emb = nn.Linear(config.psych_feature_size, config.hidden_size)
+        self.text_emb = nn.Embedding(config.text_vocab_size, config.hidden_size)
+        self.pos_enc = self._create_pos_enc(config.max_seq_length, config.hidden_size)
+        self.layers = nn.ModuleList([
+            TransformerLayer(config.hidden_size, config.num_heads, config.dropout)
+            for _ in range(config.num_layers)
+        ])
+        self.norm = nn.LayerNorm(config.hidden_size)
+        self.output = nn.Linear(config.hidden_size, config.output_size)
+        self.apply(self._init_weights)
+    
+    def _init_weights(self, module: nn.Module):
+        if isinstance(module, nn.Linear):
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    
+    def _create_pos_enc(self, max_len: int, hidden_size: int) -> torch.Tensor:
+        pe = torch.zeros(max_len, hidden_size)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_size, 2).float() * (-np.log(10000.0) / hidden_size))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe.unsqueeze(0)
+    
+    def forward(self, input_data: InputData) -> torch.Tensor:
+        batch_size, seq_len = input_data.text.shape
+        neuro_emb = self.neuro_emb(input_data.neuro.to(torch.float32))
+        psych_emb = self.psych_emb(input_data.psych.to(torch.float32)).unsqueeze(1).expand(-1, seq_len, -1)
+        text_emb = self.text_emb(input_data.text) + self.pos_enc[:, :seq_len, :].to(text_emb.device)
+        
+        x = text_emb
+        for layer in self.layers:
+            x = layer(neuro_emb, psych_emb, x, input_data.text_mask)
+        
+        x = self.norm(x).mean(dim=1)
+        return self.output(x).sigmoid()
+
+class TransformerLayer(nn.Module):
+    def __init__(self, hidden_size: int, num_heads: int, dropout: float):
+        super().__init__()
+        self.attention = GatedCrossModalAttention(hidden_size, num_heads, dropout)
+        self.norm1 = nn.LayerNorm(hidden_size)
+        self.ffn = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size * 4),
+            nn.GELU(),
+            nn.Linear(hidden_size * 4, hidden_size),
+            nn.Dropout(dropout)
+        )
+        self.norm2 = nn.LayerNorm(hidden_size)
+    
+    def forward(self, neuro: torch.Tensor, psych: torch.Tensor, text: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+        attn_out = self.attention(neuro, psych, text, mask)
+        text = self.norm1(text + attn_out)
+        return self.norm2(text + self.ffn(text))
+
+# Датасет
+class ReligiosityDataset(Dataset):
+    def __init__(self, data_dir: Path, config: ModelConfig):
+        torch.manual_seed(42)
+        np.random.seed(42)
+        self.data = self._load_data(data_dir, config)
+        self.config = config
+    
+    def _load_data(self, data_dir: Path, config: ModelConfig) -> List[dict]:
+        data = []
+        for file in data_dir.glob("*.jsonl"):
+            with open(file, 'r') as f:
+                for line in f:
+                    item = json.loads(line)
+                    if not (item['neuro'].shape[1] == config.max_seq_length and
+                            item['neuro'].shape[2] == config.neuro_feature_size and
+                            item['psych'].shape[1] == config.psych_feature_size and
+                            item['text'].shape[1] == config.max_seq_length and
+                            item['mask'].shape[1] == config.max_seq_length):
+                        raise ValueError(f"Invalid data shape in {file}")
+                    data.append({
+                        'neuro': np.array(item['neuro'], dtype=np.float32),
+                        'psych': np.array(item['psych'], dtype=np.float32),
+                        'text': np.array(item['text'], dtype=np.int64),
+                        'mask': np.array(item['mask'], dtype=np.float32),
+                        'label': np.array(item['label'], dtype=np.float32)
+                    })
+        return data
+    
+    def __len__(self) -> int:
+        return len(self.data)
+    
+    def __getitem__(self, idx: int) -> tuple[InputData, np.ndarray]:
+        item = self.data[idx]
+        return InputData(
+            neuro=item['neuro'],
+            psych=item['psych'],
+            text=item['text'],
+            text_mask=item['mask'],
+            label=item['label']
+        ), item['label']
+    
+    @staticmethod
+    def collate_fn(batch: List[tuple[InputData, np.ndarray]]) -> tuple[InputData, torch.Tensor]:
+        neuro = np.stack([item[0].neuro for item in batch])
+        psych = np.stack([item[0].psych for item in batch])
+        text = np.stack([item[0].text for item in batch])
+        text_mask = np.stack([item[0].text_mask for item in batch])
+        labels = np.stack([item[1] for item in batch])
+        return InputData(
+            neuro=torch.from_numpy(neuro),
+            psych=torch.from_numpy(psych),
+            text=torch.from_numpy(text),
+            text_mask=torch.from_numpy(text_mask),
+            label=torch.from_numpy(labels)
+        ), torch.from_numpy(labels)
+
+# Тренування
+class ReligiosityTrainer:
+    def __init__(self, model: ReligiosityTransformer, config: ModelConfig):
+        self.model = model
+        self.config = config
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
+        self.model = torch.compile(self.model, mode="reduce-overhead")
+        self.optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=0.01)
+        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            self.optimizer, max_lr=config.learning_rate, total_steps=config.epochs * config.batch_size
+        )
+        self.criterion = nn.BCELoss()
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s %(levelname)s: %(message)s',
+            handlers=[logging.FileHandler('religiosity.log'), logging.StreamHandler()]
+        )
+        self.logger = logging.getLogger(__name__)
+    
+    def train(self, train_dataset: ReligiosityDataset, val_dataset: Optional[ReligiosityDataset] = None):
+        self.model.train()
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=self.config.batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True,
+            collate_fn=ReligiosityDataset.collate_fn
+        )
+        
+        for epoch in range(self.config.epochs):
+            total_loss, preds, true = 0.0, [], []
+            for batch, labels in train_loader:
+                input_data = InputData(
+                    neuro=batch.neuro.to(self.device, non_blocking=True),
+                    psych=batch.psych.to(self.device, non_blocking=True),
+                    text=batch.text.to(self.device, non_blocking=True),
+                    text_mask=batch.text_mask.to(self.device, non_blocking=True),
+                    label=batch.label.to(self.device, non_blocking=True)
+                )
+                labels = labels.to(self.device, non_blocking=True)
+                
+                self.optimizer.zero_grad(set_to_none=True)
+                outputs = self.model(input_data).squeeze()
+                loss = self.criterion(outputs, labels)
+                
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+                self.optimizer.step()
+                self.scheduler.step()
+                
+                total_loss += loss.item()
+                preds.extend(outputs.cpu().numpy())
+                true.extend(labels.cpu().numpy())
+            
+            avg_loss = total_loss / len(train_loader)
+            f1 = f1_score(true, (np.array(preds) > 0.5).astype(int))
+            auc = roc_auc_score(true, preds)
+            self.logger.info(f"Epoch {epoch+1}/{self.config.epochs}, Loss: {avg_loss:.4f}, F1: {f1:.4f}, AUC: {auc:.4f}")
+            
+            if val_dataset:
+                val_metrics = self.validate(val_dataset)
+                self.logger.info(f"Val Loss: {val_metrics['loss']:.4f}, F1: {val_metrics['f1']:.4f}, AUC: {val_metrics['auc']:.4f}")
+            
+            self._save_checkpoint(epoch)
+    
+    def validate(self, dataset: ReligiosityDataset) -> dict:
+        self.model.eval()
+        loader = DataLoader(dataset, batch_size=self.config.batch_size, collate_fn=ReligiosityDataset.collate_fn)
+        total_loss, preds, true = 0.0, [], []
+        
+        with torch.no_grad():
+            for batch, labels in loader:
+                input_data = InputData(
+                    neuro=batch.neuro.to(self.device, non_blocking=True),
+                    psych=batch.psych.to(self.device, non_blocking=True),
+                    text=batch.text.to(self.device, non_blocking=True),
+                    text_mask=batch.text_mask.to(self.device, non_blocking=True),
+                    label=batch.label.to(self.device, non_blocking=True)
+                )
+                labels = labels.to(self.device, non_blocking=True)
+                
+                outputs = self.model(input_data).squeeze()
+                loss = self.criterion(outputs, labels)
+                
+                total_loss += loss.item()
+                preds.extend(outputs.cpu().numpy())
+                true.extend(labels.cpu().numpy())
+        
+        avg_loss = total_loss / len(loader)
+        f1 = f1_score(true, (np.array(preds) > 0.5).astype(int))
+        auc = roc_auc_score(true, preds)
+        self.model.train()
+        return {'loss': avg_loss, 'f1': f1, 'auc': auc}
+    
+    def _save_checkpoint(self, epoch: int):
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
+        }, f'checkpoint_epoch_{epoch}.pt')
+        self.logger.info(f"Saved checkpoint: epoch {epoch}")
+
+# Інференс
+class ReligiosityInference:
+    def __init__(self, model: ReligiosityTransformer, config: ModelConfig):
+        self.model = model
+        self.config = config
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model.to(self.device)
+        self.model = torch.compile(self.model, mode="reduce-overhead")
+        self.model.eval()
+        self.logger = logging.getLogger(__name__)
+    
+    def predict(self, input_data: InputData) -> List[ReligiosityScore]:
+        with torch.no_grad():
+            input_data = InputData(
+                neuro=torch.tensor(input_data.neuro, device=self.device),
+                psych=torch.tensor(input_data.psych, device=self.device),
+                text=torch.tensor(input_data.text, device=self.device),
+                text_mask=torch.tensor(input_data.text_mask, device=self.device),
+                label=torch.tensor(input_data.label, device=self.device)
+            )
+            outputs = self.model(input_data).squeeze()
+            scores = [ReligiosityScore(o.item()) for o in outputs]
+            self.logger.info(f"Predicted {len(scores)} scores: {scores[:5]}...")
+            return scores
+
+# Тести
+import pytest
+
+@pytest.fixture
+def config():
+    return ModelConfig()
+
+@pytest.fixture
+def model(config):
+    return ReligiosityTransformer(config)
+
+def test_model_forward(config, model):
+    input_data = InputData(
+        neuro=torch.rand(2, config.max_seq_length, config.neuro_feature_size),
+        psych=torch.rand(2, config.psych_feature_size),
+        text=torch.randint(0, config.text_vocab_size, (2, config.max_seq_length)),
+        text_mask=torch.ones(2, config.max_seq_length),
+        label=torch.rand(2)
+    )
+    output = model(input_data)
+    assert output.shape == (2,)
+    assert torch.all((output >= 0) & (output <= 1))
+
+def test_gated_attention(config):
+    attention = GatedCrossModalAttention(config.hidden_size, config.num_heads, config.dropout)
+    neuro = torch.rand(2, config.max_seq_length, config.hidden_size)
+    psych = torch.rand(2, config.psych_feature_size)
+    text = torch.rand(2, config.max_seq_length, config.hidden_size)
+    mask = torch.ones(2, config.max_seq_length)
+    output = attention(neuro, psych, text, mask)
+    assert output.shape == (2, config.max_seq_length, config.hidden_size)
+
+def test_dataset(config):
+    data = [{
+        'neuro': np.random.rand(1, config.max_seq_length, config.neuro_feature_size),
+        'psych': np.random.rand(1, config.psych_feature_size),
+        'text': np.random.randint(0, config.text_vocab_size, (1, config.max_seq_length)),
+        'mask': np.ones((1, config.max_seq_length)),
+        'label': np.random.rand(1)
+    }]
+    with open('test.jsonl', 'w') as f:
+        for item in data:
+            json.dump(item, f)
+            f.write('\n')
+    dataset = ReligiosityDataset(Path('.'), config)
+    input_data, label = dataset[0]
+    assert input_data.neuro.shape == (1, config.max_seq_length, config.neuro_feature_size)
+    assert input_data.text_mask.shape == (1, config.max_seq_length)
+
+# Головна функція
+def main():
+    torch.manual_seed(42)
+    np.random.seed(42)
+    config = ModelConfig()
+    model = ReligiosityTransformer(config)
+    trainer = ReligiosityTrainer(model, config)
+    train_dataset = ReligiosityDataset(Path("data/train"), config)
+    val_dataset = ReligiosityDataset(Path("data/val"), config)
+    trainer.train(train_dataset, val_dataset)
+    
+    inference = ReligiosityInference(model, config)
+    sample_input = InputData(
+        neuro=np.random.rand(config.batch_size, config.max_seq_length, config.neuro_feature_size),
+        psych=np.random.rand(config.batch_size, config.psych_feature_size),
+        text=np.random.randint(0, config.text_vocab_size, (config.batch_size, config.max_seq_length)),
+        text_mask=np.ones((config.batch_size, config.max_seq_length)),
+        label=np.random.rand(config.batch_size)
+    )
+    scores = inference.predict(sample_input)
+    print(f"Scores: {scores[:5]}...")
+
+if __name__ == "__main__":
+    main()
+```
